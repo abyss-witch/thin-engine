@@ -2,11 +2,16 @@
 name = "thin-engine"
 version = "0.1.0"
 edition = "2021"
+license = "MIT OR Apache-2.0"
+keywords = ["gamedev", "engine", "game"]
+repository = "https://github.com/abss-witch/thin-engine"
+readme = "README.md"
+description = "A thin engine between glium, winit, glium-types and winit-input-map with some extra helper functions"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 glium = "0.34.0"
-glium-types = "0.2.0"
+glium-types = "0.2.2"
 winit = "0.29.15"
-winit-input-map = { version = "0.1.1", features = ["glium-types"] }
+winit-input-map = { version = "0.2.3", features = ["glium-types"] }
