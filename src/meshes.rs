@@ -14,8 +14,8 @@ pub mod screen {
         TextureCoords::new(0.0 , 0.0)
     ];
     pub const INDICES: [u32; 6] = [
-        0, 2, 1,
-        1, 2, 3
+        1, 2, 0,
+        3, 2, 1
     ];
 }
 pub use glium_types::teapot;

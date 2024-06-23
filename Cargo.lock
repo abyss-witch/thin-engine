@@ -1028,7 +1028,7 @@ checksum = "36ae8932fcfea38b7d3883ae2ab357b0d57a02caaa18ebb4f5ece08beaec4aa0"
 
 [[package]]
 name = "thin-engine"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "gl",
  "glium",
