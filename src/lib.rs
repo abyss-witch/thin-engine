@@ -23,7 +23,7 @@ pub mod prelude {
         VertexBuffer, Program, Texture2d,
         uniform, Surface, Frame, DrawParameters
     };
-    pub use glium_types::{vectors::*, mesh, matrices::*, quaternion::*, params};
+    pub use glium_types::prelude::*;
     pub use crate::{meshes, shaders};
     pub use winit::keyboard::KeyCode;
     pub use winit::event::MouseButton;
