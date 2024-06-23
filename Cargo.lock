@@ -411,6 +411,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4271d37baee1b8c7e4b708028c57d816cf9d2434acb33a549475f78c181f6253"
 
 [[package]]
+name = "gl"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a94edab108827d67608095e269cf862e60d920f144a5026d3dbcfd8b877fb404"
+dependencies = [
+ "gl_generator",
+]
+
+[[package]]
 name = "gl_generator"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -442,9 +451,9 @@ dependencies = [
 
 [[package]]
 name = "glium-types"
-version = "0.2.2"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cf23caf648801e7a8e4137a7507b10ed4c4008d39f700517360dbe3df59336df"
+checksum = "b63c1615f7c1bd1b0f8222b02b8050e6be5e009206eb5fcf56663cfd30fc2954"
 dependencies = [
  "derive-cmp-ops",
  "glium",
@@ -1019,8 +1028,9 @@ checksum = "36ae8932fcfea38b7d3883ae2ab357b0d57a02caaa18ebb4f5ece08beaec4aa0"
 
 [[package]]
 name = "thin-engine"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
+ "gl",
  "glium",
  "glium-types",
  "winit",
@@ -1605,9 +1615,9 @@ dependencies = [
 
 [[package]]
 name = "winit-input-map"
-version = "0.2.3"
+version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "68d2eda220325383202e1520adb0fd8f1f41fb968c41b0af980c163fef27e0bb"
+checksum = "a7aab23f92b7b30f8fe1ca4a3d838fd8069aae6e8ebfc326acd2a6bdac12604d"
 dependencies = [
  "glium-types",
  "winit",
