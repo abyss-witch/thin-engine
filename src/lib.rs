@@ -1,8 +1,86 @@
+//! A thin (hence the name) game engine. Drawing done with `glium`, windowing done with `winit`
+//! and input done with `winit-input-map`. Very simple to use with low boiler plate though it is
+//! recomended to make your own structs to simplify drawing.
+//! ```
+//! use thin_engine::{prelude::*, meshes::screen};
+//! use Action::*;
+//!
+//! #[derive(ToUsize)]
+//! enum Action {
+//!     Left,
+//!     Right,
+//!     Jump,
+//!     Exit
+//! }
+//! let (event_loop, window, display) = thin_engine::set_up().unwrap();
+//! let mut input = input_map!(
+//!     (Left,  KeyCode::KeyA, MouseButton::Left, KeyCode::ArrowLeft),
+//!     (Right, KeyCode::KeyD, MouseButton::Right, KeyCode::ArrowRight),
+//!     (Jump,  KeyCode::KeyW, KeyCode::ArrowUp, KeyCode::Space),
+//!     (Exit,  KeyCode::Escape)
+//! );
+//! let (box_indices, box_verts) = mesh!(
+//!     &display, &screen::INDICES, &screen::VERTICES
+//! );
+//! let box_shader = Program::from_source(
+//! &display, shaders::VERTEX, 
+//! "#version 140
+//! out vec4 colour;
+//! void main() {
+//!     colour = vec4(1.0, 0.0, 0.0, 1.0);
+//! }", None).unwrap();
+//! 
+//! let mut player_pos = Vec2::ZERO;
+//! let mut player_gravity = 0.0;
+//! let mut player_can_jump = true;
+//!
+//! // camera matrix must be inverse
+//! let camera = Mat4::from_scale(Vec3::splat(10.0)).inverse();
+//! 
+//! let target_delay = Duration::from_secs_f32(1.0/60.0); // target of 60 fps
+//! let mut delta_time = 0.016; // change in time between frames
+//! thin_engine::run(event_loop, &mut input, |input, target| {
+//!     let elapsed = Instant::now();
+//!     // set up frame
+//!     let size = window.inner_size().into();
+//!     display.resize(size);
+//!     let mut frame = display.draw();
+//!     let view2d = Mat4::view_matrix_2d(size);
+//!     
+//!     // game logic
+//!     player_pos.x += input.axis(Right, Left) * 10.0 * delta_time;
+//!     player_gravity += delta_time * 50.0;
+//!     player_pos.y -= player_gravity * delta_time;
+//!     if player_pos.y < 0.0 {
+//!         player_pos.y = 0.0;
+//!         player_can_jump = true;
+//!     }
+//!     if player_can_jump && input.pressed(Jump) {
+//!         player_gravity = -20.0;
+//!         player_can_jump = false;
+//!     }
+//!
+//!     // draw
+//!     frame.clear_color(0.0, 0.0, 0.0, 1.0);
+//!     frame.draw(
+//!         &box_verts, &box_indices, &box_shader, &uniform! {
+//!             view: view2d, camera: camera,
+//!             model: Mat4::from_pos(player_pos.extend(0.0)),
+//!         }, &DrawParameters::default()
+//!     );
+//!     
+//!     frame.finish().unwrap();
+//!     if input.pressed(Exit) { target.exit() }
+//!     let elapsed = elapsed.elapsed();
+//!     thread::sleep(target_delay.saturating_sub(elapsed));
+//!     delta_time = elapsed.max(target_delay).as_secs_f32();
+//! }).unwrap();
+//! ```
+
 use glium::backend::glutin::SimpleWindowBuilder;
 use winit::{
     error::EventLoopError,
     event::*,
-    event_loop::EventLoopWindowTarget,
     window::Window,
 };
 use winit_input_map::InputMap;
@@ -16,6 +94,7 @@ pub mod shaders;
 
 pub type Display = glium::Display<glium::glutin::surface::WindowSurface>;
 pub type EventLoop = winit::event_loop::EventLoop<()>;
+pub type WindowTarget = winit::event_loop::EventLoopWindowTarget<()>;
 
 pub mod prelude {
     pub use glium::{
@@ -23,14 +102,16 @@ pub mod prelude {
         VertexBuffer, Program, Texture2d,
         uniform, Surface, Frame, DrawParameters
     };
+    pub use std::time::{Duration, Instant};
+    pub use std::thread;
     pub use glium_types::prelude::*;
     pub use crate::{meshes, shaders};
-    pub use winit::keyboard::KeyCode;
     pub use winit::event::MouseButton;
+    pub use winit::keyboard::KeyCode;
     pub use winit::window::{Fullscreen, CursorGrabMode};
     pub use crate::input_map::*;
 }
-///used to quickly set up thin engine.
+/// used to quickly set up thin engine.
 pub fn set_up() -> Result<(EventLoop, Window, Display), EventLoopError> {
     let event_loop = EventLoop::new()?;
     event_loop.set_control_flow(winit::event_loop::ControlFlow::Poll);
@@ -40,34 +121,30 @@ pub fn set_up() -> Result<(EventLoop, Window, Display), EventLoopError> {
 /// used to quickly set up logic. handles closed and input events for you. the `logic` var will be
 /// run every frame.
 /// ```
-/// let (event_loop, window, display) = thin_engine::set_up();
-///
+/// use thin_engine::prelude::*;
+/// let (event_loop, window, display) = thin_engine::set_up().unwrap();
+/// #[derive(ToUsize)]
 /// enum Actions{
 ///     Debug
 /// }
-/// impl Into<usize> for Actions{
-///     fn into(self) -> usize{
-///         self as usize
-///     }
-/// }
 /// use Actions::*;
-/// let mut input = thin_engine::Input::new([
-///     (vec![InputCode::keycode(KeyCode::Space), Debug)
-/// ]);
+/// let mut input = input_map!(
+///     (Debug, KeyCode::Space)
+/// );
 ///
-/// run(event_loop, &mut input, |_|{
+/// thin_engine::run(event_loop, &mut input, |_, _| {
 ///     let mut frame = display.draw();
-///     frame.clear_color(0, 0, 0, 0);
+///     frame.clear_color(0.0, 0.0, 0.0, 1.0);
 ///     frame.finish().unwrap();
 /// });
 /// ```
-pub fn run<const BINDS: usize, F1>(
+pub fn run<const BINDS: usize, F>(
     event_loop: EventLoop,
     input: &mut InputMap<BINDS>,
-    mut logic: F1,
+    mut logic: F,
 ) -> Result<(), EventLoopError>
 where
-    F1: FnMut(&mut InputMap<BINDS>),
+    F: FnMut(&mut InputMap<BINDS>, &WindowTarget),
 {
     event_loop.run(|event, target| {
         input.update(&event);
@@ -77,7 +154,7 @@ where
                 ..
             } => target.exit(),
             Event::AboutToWait => {
-                logic(input);
+                logic(input, target);
                 input.init();
             }
             _ => (),
@@ -89,20 +166,16 @@ where
 /// run every frame. the `event_handler` var is
 /// for if you want more control over the event handling and is run multiple times before logic.
 /// ```
-/// let (event_loop, window, display) = thin_engine::set_up();
-///
+/// use thin_engine::prelude::*;
+/// let (event_loop, window, display) = thin_engine::set_up().unwrap();
+/// #[derive(ToUsize)]
 /// enum Actions{
 ///     Debug
 /// }
-/// impl Into<usize> for Actions{
-///     fn into(self) -> usize{
-///         self as usize
-///     }
-/// }
 /// use Actions::*;
-/// let mut input = thin_engine::Input::new([
-///     (vec![InputCode::keycode(KeyCode::Space), Debug)
-/// ]);
+/// let mut input = input_map!(
+///     (Debug, KeyCode::Space)
+/// );
 ///
 ///
 /// thin_engine::run_with_event_handler(
@@ -115,7 +188,7 @@ where
 ///         }
 ///     }, |_|{
 ///         let mut frame = display.draw();
-///         frame.clear_color(0, 0, 0, 1);
+///         frame.clear_color(0.0, 0.0, 0.0, 1.0);
 ///         frame.finish().unwrap();
 /// });
 /// ```
@@ -127,7 +200,7 @@ pub fn run_with_event_handler<const BINDS: usize, F1, F2>(
 ) -> Result<(), EventLoopError>
 where
     F1: FnMut(&mut InputMap<BINDS>),
-    F2: FnMut(&Event<()>, &EventLoopWindowTarget<()>),
+    F2: FnMut(&Event<()>, &WindowTarget),
 {
     event_loop.run(|event, target| {
         input.update(&event);
@@ -176,7 +249,7 @@ impl ResizableTexture2D {
     }
 }
 /// resizable depth texture. use with gliums `SimpleFrameBuffer::WithDepthTexture()` 
-/// to create a texture you can draw on! usefull for things like fog.
+/// to create a texture you can draw on! usefull for things like fog and fxaa.
 #[derive(Default)]
 pub struct ResizableDepthTexture2D {
     size: (u32, u32),

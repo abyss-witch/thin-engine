@@ -27,14 +27,14 @@ fn main() {
     let mut colour = ResizableTexture2D::default();
     let mut depth = ResizableDepthTexture2D::default();
 
-    let mut input = InputMap::new([
-        (vec![Input::keycode(KeyCode::ArrowLeft), Input::keycode(KeyCode::KeyA)], Left),
-        (vec![Input::keycode(KeyCode::ArrowRight), Input::keycode(KeyCode::KeyD)], Right),
-        (vec![Input::keycode(KeyCode::ArrowUp), Input::keycode(KeyCode::KeyW)], Forward),
-        (vec![Input::keycode(KeyCode::ArrowDown), Input::keycode(KeyCode::KeyS)], Back),
-        (vec![Input::keycode(KeyCode::KeyF)], FXAA),
-        (vec![Input::keycode(KeyCode::Space)], Jump)
-    ]);
+    let mut input = input_map!(
+        (Left,    KeyCode::ArrowLeft,  KeyCode::KeyA),
+        (Right,   KeyCode::ArrowRight, KeyCode::KeyD),
+        (Forward, KeyCode::ArrowUp,    KeyCode::KeyW),
+        (Back,    KeyCode::ArrowDown,  KeyCode::KeyS),
+        (FXAA,    KeyCode::KeyF),
+        (Jump,    KeyCode::Space)
+    );
     let (screen_indices, verts, uvs) = mesh!(
         &display, &screen::INDICES, &screen::VERTICES, &screen::UVS
     );
@@ -66,7 +66,6 @@ fn main() {
             colour = vec4(albedo * light_level + ambient + vec3(specular), 1.0);
         }", None
     ).unwrap();
-    let fxaa = shaders::fxaa_shader(&display).unwrap();
     let normal = Program::from_source(
         &display, shaders::SCREEN_VERTEX, 
         "#version 140
@@ -77,15 +76,16 @@ fn main() {
             colour = texture(tex, uv);
         }", None
     ).unwrap();
-
+    let fxaa = shaders::fxaa_shader(&display).unwrap();
+    
     let mut pos = vec3(0.0, 0.0, -30.0);
     let mut rot = vec2(0.0, 0.0);
     const DELTA: f32 = 0.016;
 
-    thin_engine::run(event_loop, &mut input, |input| {
+    thin_engine::run(event_loop, &mut input, |input, _| {
         // using a small resolution to show the effect.
         // `let size = window.inner_size().into();` 
-        // can be used isntead to set resolution to window size
+        // can be used instead to set resolution to window size
         let size = (380, 216);
         display.resize(size);
         depth.resize_to_display(&display);
@@ -100,12 +100,13 @@ fn main() {
             &display, colour, depth
         ).unwrap();
 
-        let view = Mat4::view_matrix_3d(size, 1.0, 1024.0, 0.1);        
+        let view = Mat4::view_matrix_3d(size, 1.0, 1024.0, 0.1);
+
         //set camera rotation
         rot += input.mouse_move.scale(DELTA * 2.0);
         rot.y = rot.y.clamp(-PI / 2.0, PI / 2.0);
-        let rx = Quaternion::from_y_rotation(rot.x);
-        let ry = Quaternion::from_x_rotation(rot.y);
+        let rx = Quaternion::from_y_rot(rot.x);
+        let ry = Quaternion::from_x_rot(rot.y);
         let rot = rx * ry;
 
         //move player based on view
@@ -125,7 +126,7 @@ fn main() {
                 light: vec3(0.1, 0.25, -1.0).normalise(),
                 albedo: vec3(0.5, 0.1, 0.4),
                 ambient: vec3(0.0, 0.05, 0.1),
-                shine: 10.0f32,
+                shine: 50.0f32,
             },
             &draw_parameters,
         ).unwrap();

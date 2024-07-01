@@ -1,16 +1,13 @@
 use std::{f32::consts::PI, thread, time::Duration};
 use thin_engine::{prelude::*, meshes::teapot};
+#[derive(ToUsize)]
 enum Action {
     Jump,
+    Exit,
     Left,
     Right,
     Forward,
     Back,
-}
-impl Into<usize> for Action {
-    fn into(self) -> usize {
-        self as usize
-    }
 }
 fn main() {
     use Action::*;
@@ -19,13 +16,14 @@ fn main() {
     let _ = window.set_cursor_grab(CursorGrabMode::Locked);
     window.set_cursor_visible(false);
 
-    let mut input = InputMap::new([
-        (vec![Input::keycode(KeyCode::Space)], Jump),
-        (vec![Input::keycode(KeyCode::ArrowLeft), Input::keycode(KeyCode::KeyA)], Left),
-        (vec![Input::keycode(KeyCode::ArrowRight), Input::keycode(KeyCode::KeyD)], Right),
-        (vec![Input::keycode(KeyCode::ArrowUp), Input::keycode(KeyCode::KeyW)], Forward),
-        (vec![Input::keycode(KeyCode::ArrowDown), Input::keycode(KeyCode::KeyS)], Back)
-    ]);
+    let mut input = input_map!(
+        (Jump,    KeyCode::Space),
+        (Exit,    KeyCode::Escape),
+        (Left,    KeyCode::ArrowLeft,  KeyCode::KeyA),
+        (Right,   KeyCode::ArrowRight, KeyCode::KeyD),
+        (Forward, KeyCode::ArrowUp,    KeyCode::KeyW),
+        (Back,    KeyCode::ArrowDown,  KeyCode::KeyS)
+    );
 
     let (indices, verts, norms) = mesh!(
         &display, &teapot::INDICES, &teapot::VERTICES, &teapot::NORMALS
@@ -54,7 +52,7 @@ fn main() {
 
     const DELTA: f32 = 0.016;
 
-    thin_engine::run(event_loop, &mut input, |input| {
+    thin_engine::run(event_loop, &mut input, |input, target| {
         display.resize(window.inner_size().into());
         let mut frame = display.draw();
         let view = Mat4::view_matrix_3d(frame.get_dimensions(), 1.0, 1024.0, 0.1);
@@ -68,8 +66,8 @@ fn main() {
         //set camera rotation
         rot += input.mouse_move.scale(DELTA * 2.0);
         rot.y = rot.y.clamp(-PI / 2.0, PI / 2.0);
-        let rx = Quaternion::from_y_rotation(rot.x);
-        let ry = Quaternion::from_x_rotation(rot.y);
+        let rx = Quaternion::from_y_rot(rot.x);
+        let ry = Quaternion::from_x_rot(rot.y);
         let rot = rx * ry;
 
         //move player based on view and gravity
@@ -78,6 +76,8 @@ fn main() {
         let move_dir = vec3(x, 0.0, y).normalise();
         pos += move_dir.transform(&Mat3::from_rot(rx)).scale(5.0 * DELTA);
         pos.y = (pos.y - gravity * DELTA).max(0.0);
+
+        if input.pressed(Exit) { target.exit() }
 
         frame.clear_color_and_depth((0.0, 0.0, 0.0, 1.0), 1.0);
         //draw teapot
