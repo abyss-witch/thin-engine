@@ -1,6 +1,6 @@
-//! A thin (hence the name) game engine. Drawing done with `glium`, windowing done with `winit`
-//! and input done with `winit-input-map`. Very simple to use with low boiler plate though it is
-//! recomended to make your own structs to simplify drawing.
+//! A thin game engine (hence the name). Drawing done with `glium`, game variables done with
+//! `glium-types`, windowing done with `winit` and input done with `winit-input-map`. It has easy fxaa
+//! support and low boilerplate despite having lots of control.
 //! ```
 //! use thin_engine::{prelude::*, meshes::screen};
 //! use Action::*;
@@ -40,7 +40,7 @@
 //! let target_delay = Duration::from_secs_f32(1.0/60.0); // target of 60 fps
 //! let mut delta_time = 0.016; // change in time between frames
 //! thin_engine::run(event_loop, &mut input, |input, target| {
-//!     let elapsed = Instant::now();
+//!     let frame_start = Instant::now();
 //!     // set up frame
 //!     let size = window.inner_size().into();
 //!     display.resize(size);
@@ -71,9 +71,8 @@
 //!     
 //!     frame.finish().unwrap();
 //!     if input.pressed(Exit) { target.exit() }
-//!     let elapsed = elapsed.elapsed();
-//!     thread::sleep(target_delay.saturating_sub(elapsed));
-//!     delta_time = elapsed.max(target_delay).as_secs_f32();
+//!     thread::sleep(target_delay.saturating_sub(frame_start.elapsed()));
+//!     delta_time = frame_start.elapsed().as_secs_f32();
 //! }).unwrap();
 //! ```
 
