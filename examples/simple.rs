@@ -1,4 +1,4 @@
-use std::f32::consts::PI;
+use std::{f32::consts::PI, thread, time::Duration};
 use thin_engine::{prelude::*, meshes::teapot};
 #[derive(ToUsize)]
 enum Action {
@@ -38,6 +38,7 @@ fn main() {
         out vec4 colour;
         in vec3 v_normal;
         uniform vec3 light;
+
         const vec3 albedo = vec3(0.1, 1.0, 0.3);
         void main(){
             float light_level = dot(light, v_normal);

@@ -1,4 +1,4 @@
-use std::f32::consts::PI;
+use std::{f32::consts::PI, thread, time::Duration};
 use thin_engine::{
     ResizableTexture2D, ResizableDepthTexture2D,
     prelude::*, glium::framebuffer::*,
