@@ -1,77 +1,106 @@
 A thin game engine (hence the name). Drawing done with `glium`, game variables done with
-`glium-types`, windowing done with `winit` and input done with `winit-input-map`. It has easy fxaa
-support and low boilerplate despite having lots of control.
-```
-use thin_engine::{prelude::*, meshes::screen};
-use Action::*;
-
+`glium-types`, windowing done with `winit` and input done with `winit-input-map`. It has
+easy fxaa and gamepad support. It is designed to have low boilerplate and lots of control.
+```rust
+use std::f32::consts::PI;
+use thin_engine::{prelude::*, meshes::teapot};
 #[derive(ToUsize)]
 enum Action {
-    Left,
-    Right,
-    Jump,
-    Exit
+    Jump, Exit,
+    Left, Right, Forward, Back,
+    LookUp, LookDown, LookLeft, LookRight
 }
+use Action::*;
 let (event_loop, window, display) = thin_engine::set_up().unwrap();
-let mut input = input_map!(
-    (Left,  KeyCode::KeyA, MouseButton::Left, KeyCode::ArrowLeft),
-    (Right, KeyCode::KeyD, MouseButton::Right, KeyCode::ArrowRight),
-    (Jump,  KeyCode::KeyW, KeyCode::ArrowUp, KeyCode::Space),
-    (Exit,  KeyCode::Escape)
+window.set_title("Walk Test");
+let _ = window.set_cursor_grab(CursorGrabMode::Locked);
+window.set_cursor_visible(false);
+
+let input = {
+    use AxisSign::*; use KeyCode::*; use Input::*;
+    use gilrs::ev::Axis::*; use GamepadInput::Axis; 
+
+    input_map!(
+        (Jump,    Space,  GamepadButton::South),
+        (Exit,    Escape, GamepadButton::Start),
+        (Left,    ArrowLeft,  KeyA,  Axis(LeftStickX,  Neg)),
+        (Right,   ArrowRight, KeyD,  Axis(LeftStickX,  Pos)),
+        (Forward, ArrowUp,    KeyW,  Axis(LeftStickY,  Neg)),
+        (Back,    ArrowDown,  KeyS,  Axis(LeftStickY,  Pos)),
+        (LookRight, MouseMoveX(Pos), Axis(RightStickX, Pos)),
+        (LookLeft,  MouseMoveX(Neg), Axis(RightStickX, Neg)),
+        (LookUp,    MouseMoveY(Pos), Axis(RightStickY, Neg)),
+        (LookDown,  MouseMoveY(Neg), Axis(RightStickY, Pos))
+    )
+};
+
+let (indices, verts, norms) = mesh!(
+    &display, &teapot::INDICES, &teapot::VERTICES, &teapot::NORMALS
 );
-let (box_indices, box_verts) = mesh!(
-    &display, &screen::INDICES, &screen::VERTICES
-);
-let box_shader = Program::from_source(
-&display, shaders::VERTEX, 
-"#version 140
-out vec4 colour;
-void main() {
-    colour = vec4(1.0, 0.0, 0.0, 1.0);
-}", None).unwrap();
+let draw_parameters = DrawParameters {
+    backface_culling: draw_parameters::BackfaceCullingMode::CullClockwise,
+    ..params::alias_3d()
+};
+let program = Program::from_source(
+    &display, shaders::VERTEX,
+    "#version 140
+    out vec4 colour;
+    in vec3 v_normal;
+    uniform vec3 light;
+    const vec3 albedo = vec3(0.1, 1.0, 0.3);
+    void main(){
+        float light_level = dot(light, v_normal);
+        colour = vec4(albedo * light_level, 1.0);
+    }", None,
+).unwrap();
 
-let mut player_pos = Vec2::ZERO;
-let mut player_gravity = 0.0;
-let mut player_can_jump = true;
-// camera matrix must be inverse
-let camera = Mat4::from_scale(Vec3::splat(10.0)).inverse();
+let mut pos = vec3(0.0, 0.0, -30.0);
+let mut rot = vec2(0.0, 0.0);
+let mut gravity = 0.0;
 
-// target of 60 fps
-let target_delay = Duration::from_secs_f32(1.0/60.0);
-let mut delta_time = 0.016; // change in time between frames
-
-thin_engine::run(event_loop, &mut input, |input, target| {
-    let frame_start = Instant::now();
-    // set up frame
-    let size = window.inner_size().into();
-    display.resize(size);
+const DELTA: f32 = 0.016;
+let settings = Settings::from_fps(60);
+thin_engine::run(event_loop, input, settings, |input, _settings, target| {
+    display.resize(window.inner_size().into());
     let mut frame = display.draw();
-    let view2d = Mat4::view_matrix_2d(size);
-    
-    // game logic
-    player_pos.x += input.axis(Right, Left) * 10.0 * delta_time;
-    player_gravity += delta_time * 50.0;
-    player_pos.y -= player_gravity * delta_time;
-    if player_pos.y < 0.0 {
-        player_pos.y = 0.0;
-        player_can_jump = true;
+    let view = Mat4::view_matrix_3d(frame.get_dimensions(), 1.0, 1024.0, 0.1);
+
+    //handle gravity and jump
+    gravity += DELTA * 9.5;
+    if input.pressed(Jump) {
+        gravity = -10.0;
     }
-    if player_can_jump && input.pressed(Jump) {
-        player_gravity = -20.0;
-        player_can_jump = false;
-    }
-    // draw
-    frame.clear_color(0.0, 0.0, 0.0, 1.0);
-    frame.draw(
-        &box_verts, &box_indices, &box_shader, &uniform! {
-            view: view2d, camera: camera,
-            model: Mat4::from_pos(player_pos.extend(0.0)),
-        }, &DrawParameters::default()
-    );
-    
-    frame.finish().unwrap();
+
+    //set camera rotation
+    let look_move = vec2(input.axis(LookRight, LookLeft), input.axis(LookUp, LookDown));
+    rot += look_move.scale(DELTA * 7.0);
+    rot.y = rot.y.clamp(-PI / 2.0, PI / 2.0);
+    let rx = Quaternion::from_y_rot(rot.x);
+    let ry = Quaternion::from_x_rot(rot.y);
+    let rot = rx * ry;
+
+    //move player based on view and gravity
+    let dir = vec2(input.axis(Right, Left), input.axis(Forward, Back));
+    let strength = dir.length().min(1.0); // handle controlers variable strength
+    let move_dir = vec3(dir.x, 0.0, dir.y).transform(&Mat3::from_rot(rx)).normalise();
+    pos += move_dir.scale(5.0*DELTA*strength);
+    pos.y = (pos.y - gravity * DELTA).max(0.0);
+
     if input.pressed(Exit) { target.exit() }
-    thread::sleep(target_delay.saturating_sub(frame_start.elapse()));
-    delta_time = frame_start.elapsed().as_secs_f32();
+
+    frame.clear_color_and_depth((0.0, 0.0, 0.0, 1.0), 1.0);
+    //draw teapot
+    frame.draw(
+        (&verts, &norms), &indices,
+        &program, &uniform! {
+            view: view,
+            model: Mat4::from_scale(Vec3::splat(0.1)),
+            camera: Mat4::from_inverse_transform(pos, Vec3::ONE, rot),
+            light: vec3(1.0, -0.9, -1.0).normalise()
+        },
+        &draw_parameters,
+    ).unwrap();
+
+    frame.finish().unwrap();
 }).unwrap();
 ```

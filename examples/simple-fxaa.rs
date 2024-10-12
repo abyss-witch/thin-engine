@@ -5,12 +5,9 @@ use thin_engine::{
     meshes::{teapot, screen}
 };
 enum Action {
-    Left,
-    Right,
-    Forward,
-    Back,
-    FXAA,
-    Jump
+    Left, Right, Forward, Back,
+    LookLeft, LookRight, LookUp, LookDown,
+    FXAA
 }
 impl Into<usize> for Action {
     fn into(self) -> usize {
@@ -27,13 +24,17 @@ fn main() {
     let mut colour = ResizableTexture2D::default();
     let mut depth = ResizableDepthTexture2D::default();
 
-    let mut input = input_map!(
-        (Left,    KeyCode::ArrowLeft,  KeyCode::KeyA),
-        (Right,   KeyCode::ArrowRight, KeyCode::KeyD),
-        (Forward, KeyCode::ArrowUp,    KeyCode::KeyW),
-        (Back,    KeyCode::ArrowDown,  KeyCode::KeyS),
-        (FXAA,    KeyCode::KeyF),
-        (Jump,    KeyCode::Space)
+    use AxisSign::*;
+    let input = input_map!(
+        (Left,    KeyCode::ArrowLeft,  KeyCode::KeyA, GamepadInput::Axis(Axis::LeftStickX,  Neg)),
+        (Right,   KeyCode::ArrowRight, KeyCode::KeyD, GamepadInput::Axis(Axis::LeftStickX,  Pos)),
+        (Forward, KeyCode::ArrowUp,    KeyCode::KeyW, GamepadInput::Axis(Axis::LeftStickY,  Neg)),
+        (Back,    KeyCode::ArrowDown,  KeyCode::KeyS, GamepadInput::Axis(Axis::LeftStickY,  Pos)),
+        (LookRight, Input::MouseMoveX(AxisSign::Pos), GamepadInput::Axis(Axis::RightStickX, Pos)),
+        (LookLeft,  Input::MouseMoveX(AxisSign::Neg), GamepadInput::Axis(Axis::RightStickX, Neg)),
+        (LookUp,    Input::MouseMoveY(AxisSign::Pos), GamepadInput::Axis(Axis::RightStickY, Pos)),
+        (LookDown,  Input::MouseMoveY(AxisSign::Neg), GamepadInput::Axis(Axis::RightStickY, Neg)),
+        (FXAA,    KeyCode::KeyF, GamepadButton::North)
     );
     let (screen_indices, verts, uvs) = mesh!(
         &display, &screen::INDICES, &screen::VERTICES, &screen::UVS
@@ -82,7 +83,7 @@ fn main() {
     let mut rot = vec2(0.0, 0.0);
     const DELTA: f32 = 0.016;
 
-    thin_engine::run(event_loop, &mut input, |input, _| {
+    thin_engine::run(event_loop, input, Settings::from_fps(60), |input, _, _| {
         // using a small resolution to show the effect.
         // `let size = window.inner_size().into();` 
         // can be used instead to set resolution to window size
@@ -103,16 +104,17 @@ fn main() {
         let view = Mat4::view_matrix_3d(size, 1.0, 1024.0, 0.1);
 
         //set camera rotation
-        rot += input.mouse_move.scale(DELTA * 2.0);
+        let look_move = vec2(input.axis(LookRight, LookLeft), input.axis(LookUp, LookDown));
+        rot += look_move.scale(DELTA * 2.0);
         rot.y = rot.y.clamp(-PI / 2.0, PI / 2.0);
         let rx = Quaternion::from_y_rot(rot.x);
         let ry = Quaternion::from_x_rot(rot.y);
         let rot = rx * ry;
 
         //move player based on view
-        let x = input.axis(Right, Left);
-        let y = input.axis(Forward, Back);
-        let move_dir = vec3(x, 0.0, y).normalise().scale(5.0*DELTA);
+        let dir = vec2(input.axis(Right, Left), input.axis(Forward, Back));
+        let strength = dir.length().min(1.0); // handle controller variable strength
+        let move_dir = vec3(dir.x, 0.0, dir.y).normalise().scale(5.0*DELTA*strength);
         pos += move_dir.transform(&Mat3::from_rot(rx));
 
         frame.clear_color_and_depth((0.0, 0.0, 0.0, 1.0), 1.0);

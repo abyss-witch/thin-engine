@@ -2,12 +2,9 @@ use std::f32::consts::PI;
 use thin_engine::{prelude::*, meshes::teapot};
 #[derive(ToUsize)]
 enum Action {
-    Jump,
-    Exit,
-    Left,
-    Right,
-    Forward,
-    Back,
+    Jump, Exit,
+    Left, Right, Forward, Back,
+    LookUp, LookDown, LookLeft, LookRight
 }
 fn main() {
     use Action::*;
@@ -16,14 +13,23 @@ fn main() {
     let _ = window.set_cursor_grab(CursorGrabMode::Locked);
     window.set_cursor_visible(false);
 
-    let mut input = input_map!(
-        (Jump,    KeyCode::Space),
-        (Exit,    KeyCode::Escape),
-        (Left,    KeyCode::ArrowLeft,  KeyCode::KeyA),
-        (Right,   KeyCode::ArrowRight, KeyCode::KeyD),
-        (Forward, KeyCode::ArrowUp,    KeyCode::KeyW),
-        (Back,    KeyCode::ArrowDown,  KeyCode::KeyS)
-    );
+    let input = {
+        use AxisSign::*; use KeyCode::*; use Input::*;
+        use gilrs::ev::Axis::*; use GamepadInput::Axis; 
+
+        input_map!(
+            (Jump,    Space,  GamepadButton::South),
+            (Exit,    Escape, GamepadButton::Start),
+            (Left,    ArrowLeft,  KeyA,  Axis(LeftStickX,  Neg)),
+            (Right,   ArrowRight, KeyD,  Axis(LeftStickX,  Pos)),
+            (Forward, ArrowUp,    KeyW,  Axis(LeftStickY,  Neg)),
+            (Back,    ArrowDown,  KeyS,  Axis(LeftStickY,  Pos)),
+            (LookRight, MouseMoveX(Pos), Axis(RightStickX, Pos)),
+            (LookLeft,  MouseMoveX(Neg), Axis(RightStickX, Neg)),
+            (LookUp,    MouseMoveY(Pos), Axis(RightStickY, Neg)),
+            (LookDown,  MouseMoveY(Neg), Axis(RightStickY, Pos))
+        )
+    };
 
     let (indices, verts, norms) = mesh!(
         &display, &teapot::INDICES, &teapot::VERTICES, &teapot::NORMALS
@@ -51,7 +57,7 @@ fn main() {
 
     const DELTA: f32 = 0.016;
 
-    thin_engine::run(event_loop, &mut input, |input, target| {
+    thin_engine::run(event_loop, input, Settings::from_fps(60), |input, _settings, target| {
         display.resize(window.inner_size().into());
         let mut frame = display.draw();
         let view = Mat4::view_matrix_3d(frame.get_dimensions(), 1.0, 1024.0, 0.1);
@@ -63,17 +69,18 @@ fn main() {
         }
 
         //set camera rotation
-        rot += input.mouse_move.scale(DELTA * 2.0);
+        let look_move = vec2(input.axis(LookRight, LookLeft), input.axis(LookUp, LookDown));
+        rot += look_move.scale(DELTA * 7.0);
         rot.y = rot.y.clamp(-PI / 2.0, PI / 2.0);
         let rx = Quaternion::from_y_rot(rot.x);
         let ry = Quaternion::from_x_rot(rot.y);
         let rot = rx * ry;
 
         //move player based on view and gravity
-        let x = input.axis(Right, Left);
-        let y = input.axis(Forward, Back);
-        let move_dir = vec3(x, 0.0, y).normalise();
-        pos += move_dir.transform(&Mat3::from_rot(rx)).scale(5.0 * DELTA);
+        let dir = vec2(input.axis(Right, Left), input.axis(Forward, Back));
+        let strength = dir.length().min(1.0); // handle controlers variable strength
+        let move_dir = vec3(dir.x, 0.0, dir.y).transform(&Mat3::from_rot(rx)).normalise();
+        pos += move_dir.scale(5.0*DELTA*strength);
         pos.y = (pos.y - gravity * DELTA).max(0.0);
 
         if input.pressed(Exit) { target.exit() }
@@ -92,6 +99,5 @@ fn main() {
         ).unwrap();
 
         frame.finish().unwrap();
-        thread::sleep(Duration::from_millis(16));
     }).unwrap();
 }

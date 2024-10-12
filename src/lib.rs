@@ -14,10 +14,10 @@
 //! }
 //! let (event_loop, window, display) = thin_engine::set_up().unwrap();
 //! let mut input = input_map!(
-//!     (Left,  KeyCode::KeyA, MouseButton::Left, KeyCode::ArrowLeft),
-//!     (Right, KeyCode::KeyD, MouseButton::Right, KeyCode::ArrowRight),
-//!     (Jump,  KeyCode::KeyW, KeyCode::ArrowUp, KeyCode::Space),
-//!     (Exit,  KeyCode::Escape)
+//!     (Left,  KeyCode::KeyA, MouseButton::Left,  KeyCode::ArrowLeft,  GamepadButton::DPadLeft),
+//!     (Right, KeyCode::KeyD, MouseButton::Right, KeyCode::ArrowRight, GamepadButton::DPadRight),
+//!     (Jump,  KeyCode::KeyW, KeyCode::ArrowUp,   KeyCode::Space,      GamepadButton::South),
+//!     (Exit,  KeyCode::Escape, GamepadButton::Start)
 //! );
 //! let (box_indices, box_verts) = mesh!(
 //!     &display, &screen::INDICES, &screen::VERTICES
@@ -37,9 +37,9 @@
 //! // camera matrix must be inverse
 //! let camera = Mat4::from_scale(Vec3::splat(10.0)).inverse();
 //! 
-//! let target_delay = Duration::from_secs_f32(1.0/60.0); // target of 60 fps
+//! let settings = Settings::from_fps(60); // target of 60 fps
 //! let mut delta_time = 0.016; // change in time between frames
-//! thin_engine::run(event_loop, &mut input, |input, target| {
+//! thin_engine::run(event_loop, input, settings, |input, _settings, target| {
 //!     let frame_start = Instant::now();
 //!     // set up frame
 //!     let size = window.inner_size().into();
@@ -47,6 +47,8 @@
 //!     let mut frame = display.draw();
 //!     let view2d = Mat4::view_matrix_2d(size);
 //!     
+//!     if input.pressed(Exit) { target.exit() }
+//!
 //!     // game logic
 //!     player_pos.x += input.axis(Right, Left) * 10.0 * delta_time;
 //!     player_gravity += delta_time * 50.0;
@@ -68,45 +70,83 @@
 //!             model: Mat4::from_pos(player_pos.extend(0.0)),
 //!         }, &DrawParameters::default()
 //!     );
-//!     
 //!     frame.finish().unwrap();
-//!     if input.pressed(Exit) { target.exit() }
-//!     thread::sleep(target_delay.saturating_sub(frame_start.elapsed()));
 //!     delta_time = frame_start.elapsed().as_secs_f32();
 //! }).unwrap();
 //! ```
 
+#![allow(deprecated)]
 use glium::backend::glutin::SimpleWindowBuilder;
 use winit::{
     error::EventLoopError,
     event::*,
     window::Window,
 };
+pub use gilrs;
+use gilrs::Gilrs;
 use winit_input_map::InputMap;
 pub use glium;
 pub use glium_types;
 pub use winit;
 pub use winit_input_map as input_map;
+use std::time::{Duration, Instant};
 
+/// run time settings for thin engine including gamepad settings (through gilrs) and fps settings.
+/// when running `default()` the gamepads may fail to initialise and the program will continue
+/// running after printing the error. if this is undesirable use `with_gamepads()` instead.
+pub struct Settings {
+    gamepads: Option<Gilrs>,
+    min_frame_duration: Option<Duration>
+}
+impl Settings {
+    pub fn new(gamepads: Option<Gilrs>, min_frame_duration: Option<Duration>) -> Self {
+        Self { gamepads, min_frame_duration }
+    }
+    /// creates settings with the minimum frame duration set to 1/fps.
+    pub fn from_fps(fps: u32) -> Self {
+        let gamepads = Gilrs::new().map_err(|i| println!("{i}")).ok();
+        let min_frame_duration = Some(Duration::from_secs_f32(1.0/fps as f32));
+
+        Self::new(gamepads, min_frame_duration)
+    }
+    /// guarantees gamepads will be set instead of printing an error and moving on.
+    pub fn with_gamepads() -> Result<Self, gilrs::Error> {
+        let gilrs = Gilrs::new()?;
+        Ok(Self::new(Some(gilrs), None))
+    }
+    /// sets the minimum frame duration to 1/fps or none if inputed.
+    pub fn set_target_fps(&mut self, target_fps: Option<u32>) {
+        let min_duration = target_fps.map(|i| Duration::from_secs_f32(1.0/i as f32));
+        self.min_frame_duration = min_duration;
+    }
+}
+impl Default for Settings {
+    fn default() -> Self {
+        let gamepads = Gilrs::new().map_err(|i| println!("{i}")).ok();
+        Self::new(gamepads, None)
+    }
+}
 pub mod meshes;
 pub mod shaders;
 
 pub type Display = glium::Display<glium::glutin::surface::WindowSurface>;
 pub type EventLoop = winit::event_loop::EventLoop<()>;
-pub type WindowTarget = winit::event_loop::EventLoopWindowTarget<()>;
+pub type WindowTarget = winit::event_loop::ActiveEventLoop;
 
 pub mod prelude {
     pub use glium::{
-        draw_parameters, IndexBuffer,
+        draw_parameters, IndexBuffer, self,
         VertexBuffer, Program, Texture2d,
         uniform, Surface, Frame, DrawParameters
     };
+    pub use crate::Settings;
     pub use std::time::{Duration, Instant};
     pub use std::thread;
     pub use glium_types::prelude::*;
     pub use crate::{meshes, shaders};
     pub use winit::event::MouseButton;
     pub use winit::keyboard::KeyCode;
+    pub use gilrs::ev::{Button as GamepadButton, Axis};
     pub use winit::window::{Fullscreen, CursorGrabMode};
     pub use crate::input_map::*;
 }
@@ -123,43 +163,46 @@ pub fn set_up() -> Result<(EventLoop, Window, Display), EventLoopError> {
 /// use thin_engine::prelude::*;
 /// let (event_loop, window, display) = thin_engine::set_up().unwrap();
 /// #[derive(ToUsize)]
-/// enum Actions{
-///     Debug
-/// }
+/// enum Actions{ Debug }
 /// use Actions::*;
 /// let mut input = input_map!(
-///     (Debug, KeyCode::Space)
+///     (Debug, KeyCode::Space, GamepadButton::South)
 /// );
-///
-/// thin_engine::run(event_loop, &mut input, |_, _| {
+/// let settings = Settings::default();
+/// thin_engine::run(event_loop, input, settings, |_, _, _| {
 ///     let mut frame = display.draw();
 ///     frame.clear_color(0.0, 0.0, 0.0, 1.0);
 ///     frame.finish().unwrap();
-/// });
+/// }).unwrap();
 /// ```
 pub fn run<const BINDS: usize, F>(
     event_loop: EventLoop,
-    input: &mut InputMap<BINDS>,
+    mut input: InputMap<BINDS>,
+    mut settings: Settings,
     mut logic: F,
 ) -> Result<(), EventLoopError>
 where
-    F: FnMut(&mut InputMap<BINDS>, &WindowTarget),
+    F: FnMut(&mut InputMap<BINDS>, &mut Settings, &WindowTarget),
 {
+    let mut frame_time = Instant::now();
     event_loop.run(|event, target| {
-        input.update(&event);
+        if let Some(ref mut gilrs) = settings.gamepads { input.update_with_gilrs(gilrs) }
         match &event {
-            Event::WindowEvent {
-                event: WindowEvent::CloseRequested,
-                ..
-            } => target.exit(),
+            Event::WindowEvent { event: WindowEvent::CloseRequested, .. } => target.exit(),
+            Event::WindowEvent { event, .. } => input.update_with_window_event(event),
+            Event::DeviceEvent { event, .. } => input.update_with_device_event(event),
             Event::AboutToWait => {
-                logic(input, target);
-                input.init();
-            }
+                let update = settings.min_frame_duration
+                    .map(|i| i >= frame_time.elapsed())
+                    .unwrap_or(true);
+                if update {
+                    logic(&mut input, &mut settings, target);
+                    frame_time = Instant::now();
+                    input.init() }
+            },
             _ => (),
         }
-    })?;
-    Ok(())
+    })
 }
 /// used to quickly set up logic. handles closed and input events for you. the `logic` var will be
 /// run every frame. the `event_handler` var is
@@ -178,14 +221,14 @@ where
 ///
 ///
 /// thin_engine::run_with_event_handler(
-///     event_loop,
-///     &mut input,
-///     |event, target| {
+///     event_loop, input,
+///     Settings::default(),
+///     |event, input, settings, target| {
 ///         match event {
 ///             //do something with events
 ///             _ => ()
 ///         }
-///     }, |_|{
+///     }, |input, settings, target|{
 ///         let mut frame = display.draw();
 ///         frame.clear_color(0.0, 0.0, 0.0, 1.0);
 ///         frame.finish().unwrap();
@@ -193,30 +236,36 @@ where
 /// ```
 pub fn run_with_event_handler<const BINDS: usize, F1, F2>(
     event_loop: EventLoop,
-    input: &mut InputMap<BINDS>,
+    mut input: InputMap<BINDS>,
+    mut settings: Settings,
     mut event_handler: F2,
     mut logic: F1,
 ) -> Result<(), EventLoopError>
 where
-    F1: FnMut(&mut InputMap<BINDS>),
-    F2: FnMut(&Event<()>, &WindowTarget),
+    F1: FnMut(&mut InputMap<BINDS>, &mut Settings, &WindowTarget),
+    F2: FnMut(&Event<()>, &mut InputMap<BINDS>, &mut Settings, &WindowTarget),
 {
+    let mut frame_time = Instant::now();
     event_loop.run(|event, target| {
-        input.update(&event);
-        event_handler(&event, target);
+        if let Some(ref mut gilrs) = settings.gamepads { input.update_with_gilrs(gilrs) }
+        event_handler(&event, &mut input, &mut settings, target);
         match &event {
-            Event::WindowEvent {
-                event: WindowEvent::CloseRequested,
-                ..
-            } => target.exit(),
+            Event::WindowEvent { event: WindowEvent::CloseRequested, .. } => target.exit(),
+            Event::WindowEvent { event, .. } => input.update_with_window_event(event),
+            Event::DeviceEvent { event, .. } => input.update_with_device_event(event),
             Event::AboutToWait => {
-                logic(input);
-                input.init();
-            }
+                let update = settings.min_frame_duration
+                    .map(|i| i >= frame_time.elapsed())
+                    .unwrap_or(true);
+                if update {
+                    logic(&mut input, &mut settings, target);
+                    frame_time = Instant::now();
+                    input.init()
+                }
+            },
             _ => (),
         }
-    })?;
-    Ok(())
+    })
 }
 /// resizable depth texture. recomended to  use with gliums `SimpleFrameBuffer` to draw onto a texture you can use
 /// in another shader! usefull for fxaa
