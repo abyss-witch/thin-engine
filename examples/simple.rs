@@ -1,6 +1,6 @@
 use std::f32::consts::PI;
 use thin_engine::{prelude::*, meshes::teapot};
-#[derive(ToUsize)]
+#[derive(Hash, PartialEq, Eq, Clone, Copy)]
 enum Action {
     Jump, Exit,
     Left, Right, Forward, Back,
@@ -14,9 +14,7 @@ fn main() {
     window.set_cursor_visible(false);
 
     let input = {
-        use AxisSign::*; use KeyCode::*; use Input::*;
-        use gilrs::ev::Axis::*; use GamepadInput::Axis; 
-
+        use thin_engine::input_map_setup::*;
         input_map!(
             (Jump,    Space,  GamepadButton::South),
             (Exit,    Escape, GamepadButton::Start),
@@ -69,18 +67,17 @@ fn main() {
         }
 
         //set camera rotation
-        let look_move = vec2(input.axis(LookRight, LookLeft), input.axis(LookUp, LookDown));
+        let look_move = input.dir(LookRight, LookLeft, LookUp, LookDown);
         rot += look_move.scale(DELTA * 7.0);
         rot.y = rot.y.clamp(-PI / 2.0, PI / 2.0);
-        let rx = Quaternion::from_y_rot(rot.x);
-        let ry = Quaternion::from_x_rot(rot.y);
+        let rx = Quat::from_y_rot(rot.x);
+        let ry = Quat::from_x_rot(rot.y);
         let rot = rx * ry;
 
         //move player based on view and gravity
-        let dir = vec2(input.axis(Right, Left), input.axis(Forward, Back));
-        let strength = dir.length().min(1.0); // handle controlers variable strength
-        let move_dir = vec3(dir.x, 0.0, dir.y).transform(&Mat3::from_rot(rx)).normalise();
-        pos += move_dir.scale(5.0*DELTA*strength);
+        let dir = input.dir_max_len_1(Right, Left, Forward, Back);
+        let move_dir = vec3(dir.x, 0.0, dir.y).scale(5.0*DELTA);
+        pos += move_dir.transform(&Mat3::from_rot(rx));
         pos.y = (pos.y - gravity * DELTA).max(0.0);
 
         if input.pressed(Exit) { target.exit() }

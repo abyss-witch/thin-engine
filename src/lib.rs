@@ -5,7 +5,7 @@
 //! use thin_engine::{prelude::*, meshes::screen};
 //! use Action::*;
 //!
-//! #[derive(ToUsize)]
+//! #[derive(Hash, PartialEq, Eq, Clone, Copy)]
 //! enum Action {
 //!     Left,
 //!     Right,
@@ -13,12 +13,15 @@
 //!     Exit
 //! }
 //! let (event_loop, window, display) = thin_engine::set_up().unwrap();
-//! let mut input = input_map!(
-//!     (Left,  KeyCode::KeyA, MouseButton::Left,  KeyCode::ArrowLeft,  GamepadButton::DPadLeft),
-//!     (Right, KeyCode::KeyD, MouseButton::Right, KeyCode::ArrowRight, GamepadButton::DPadRight),
-//!     (Jump,  KeyCode::KeyW, KeyCode::ArrowUp,   KeyCode::Space,      GamepadButton::South),
-//!     (Exit,  KeyCode::Escape, GamepadButton::Start)
-//! );
+//! let mut input = {
+//!     use thin_engine::input_map_setup::*;
+//!     input_map!(
+//!         (Left,  KeyA, MouseButton::Left,  ArrowLeft,  GamepadButton::DPadLeft),
+//!         (Right, KeyD, MouseButton::Right, ArrowRight, GamepadButton::DPadRight),
+//!         (Jump,  KeyW, ArrowUp, Space, GamepadButton::South),
+//!         (Exit,  Escape, GamepadButton::Start)
+//!     )
+//! };
 //! let (box_indices, box_verts) = mesh!(
 //!     &display, &screen::INDICES, &screen::VERTICES
 //! );
@@ -82,6 +85,7 @@ use winit::{
     event::*,
     window::Window,
 };
+use std::{hash::Hash};
 pub use gilrs;
 use gilrs::Gilrs;
 use winit_input_map::InputMap;
@@ -146,9 +150,29 @@ pub mod prelude {
     pub use crate::{meshes, shaders};
     pub use winit::event::MouseButton;
     pub use winit::keyboard::KeyCode;
-    pub use gilrs::ev::{Button as GamepadButton, Axis};
+    pub use gilrs::ev::{Button as GamepadButton, Axis as GamepadAxis};
     pub use winit::window::{Fullscreen, CursorGrabMode};
     pub use crate::input_map::*;
+}
+/// imports base roots of input_code options to reduce boilerplate
+/// ```
+/// #[derive(Hash, PartialEq, Eq, Clone, Copy)]
+/// enum Actions { Foo, Bar }
+/// use Actions::*;
+/// let input_map = {
+///     use thin_engine::input_map_setup::*;
+///     thin_engine::input_map::input_map!(
+///         (Foo, Axis(LeftStickX, Pos), MouseMoveX(Pos),  GamepadButton::West),
+///         (Bar, MouseScroll(Neg),      MouseButton::Left)
+///     )
+/// };
+/// ```
+pub mod input_map_setup {
+    pub use winit::keyboard::KeyCode::*;
+    pub use winit::event::MouseButton;
+    pub use gilrs::Axis::*;
+    pub use winit_input_map::{GamepadButton, *};
+    pub use winit_input_map::{DeviceInput::*, GamepadInput::Axis, AxisSign::*};
 }
 /// used to quickly set up thin engine.
 pub fn set_up() -> Result<(EventLoop, Window, Display), EventLoopError> {
@@ -162,7 +186,7 @@ pub fn set_up() -> Result<(EventLoop, Window, Display), EventLoopError> {
 /// ```
 /// use thin_engine::prelude::*;
 /// let (event_loop, window, display) = thin_engine::set_up().unwrap();
-/// #[derive(ToUsize)]
+/// #[derive(Hash, PartialEq, Eq, Clone, Copy)]
 /// enum Actions{ Debug }
 /// use Actions::*;
 /// let mut input = input_map!(
@@ -175,14 +199,15 @@ pub fn set_up() -> Result<(EventLoop, Window, Display), EventLoopError> {
 ///     frame.finish().unwrap();
 /// }).unwrap();
 /// ```
-pub fn run<const BINDS: usize, F>(
+pub fn run<T, F>(
     event_loop: EventLoop,
-    mut input: InputMap<BINDS>,
+    mut input: InputMap<T>,
     mut settings: Settings,
     mut logic: F,
 ) -> Result<(), EventLoopError>
 where
-    F: FnMut(&mut InputMap<BINDS>, &mut Settings, &WindowTarget),
+    T: Hash + PartialEq + Eq + Copy + Clone,
+    F: FnMut(&mut InputMap<T>, &mut Settings, &WindowTarget),
 {
     let mut frame_time = Instant::now();
     event_loop.run(|event, target| {
@@ -210,7 +235,7 @@ where
 /// ```
 /// use thin_engine::prelude::*;
 /// let (event_loop, window, display) = thin_engine::set_up().unwrap();
-/// #[derive(ToUsize)]
+/// #[derive(Hash, PartialEq, Eq, Clone, Copy)]
 /// enum Actions{
 ///     Debug
 /// }
@@ -234,16 +259,17 @@ where
 ///         frame.finish().unwrap();
 /// });
 /// ```
-pub fn run_with_event_handler<const BINDS: usize, F1, F2>(
+pub fn run_with_event_handler<T, F1, F2>(
     event_loop: EventLoop,
-    mut input: InputMap<BINDS>,
+    mut input: InputMap<T>,
     mut settings: Settings,
     mut event_handler: F2,
     mut logic: F1,
 ) -> Result<(), EventLoopError>
 where
-    F1: FnMut(&mut InputMap<BINDS>, &mut Settings, &WindowTarget),
-    F2: FnMut(&Event<()>, &mut InputMap<BINDS>, &mut Settings, &WindowTarget),
+    T: Hash + PartialEq + Eq + Clone + Copy,
+    F1: FnMut(&mut InputMap<T>, &mut Settings, &WindowTarget),
+    F2: FnMut(&Event<()>, &mut InputMap<T>, &mut Settings, &WindowTarget),
 {
     let mut frame_time = Instant::now();
     event_loop.run(|event, target| {

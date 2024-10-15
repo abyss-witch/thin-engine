@@ -1,25 +1,34 @@
-A thin game engine (hence the name). Drawing done with `glium`, game variables done with
-`glium-types`, windowing done with `winit` and input done with `winit-input-map`. It has
-easy fxaa and gamepad support. It is designed to have low boilerplate and lots of control.
+### Thin Engine
+A thin game engine (hence the name) which ties some of my libraries (winit_input_map and glium-types)
+into an easy to use, low boilerplate and high control game engine. Best suited for small projects.
+
+Features:
+    - Gamepad Support
+    - Variable Input Support
+    - Drawing through glium
+    - Prebuilt shaders
+    - Data Types for everything in glsl
+    - Quaternions
+    - Prebuilt meshes
 ```rust
 use std::f32::consts::PI;
 use thin_engine::{prelude::*, meshes::teapot};
-#[derive(ToUsize)]
+use draw_parameters::BackfaceCullingMode;
+#[derive(Hash, PartialEq, Eq, Clone, Copy)]
 enum Action {
     Jump, Exit,
     Left, Right, Forward, Back,
     LookUp, LookDown, LookLeft, LookRight
 }
 use Action::*;
+
 let (event_loop, window, display) = thin_engine::set_up().unwrap();
 window.set_title("Walk Test");
 let _ = window.set_cursor_grab(CursorGrabMode::Locked);
 window.set_cursor_visible(false);
 
 let input = {
-    use AxisSign::*; use KeyCode::*; use Input::*;
-    use gilrs::ev::Axis::*; use GamepadInput::Axis; 
-
+    use thin_engine::input_map_setup::*;
     input_map!(
         (Jump,    Space,  GamepadButton::South),
         (Exit,    Escape, GamepadButton::Start),
@@ -35,10 +44,11 @@ let input = {
 };
 
 let (indices, verts, norms) = mesh!(
-    &display, &teapot::INDICES, &teapot::VERTICES, &teapot::NORMALS
+    &display, &teapot::INDICES,
+    &teapot::VERTICES, &teapot::NORMALS
 );
 let draw_parameters = DrawParameters {
-    backface_culling: draw_parameters::BackfaceCullingMode::CullClockwise,
+    backface_culling: BackfaceCullingMode::CullClockwise,
     ..params::alias_3d()
 };
 let program = Program::from_source(
@@ -60,10 +70,11 @@ let mut gravity = 0.0;
 
 const DELTA: f32 = 0.016;
 let settings = Settings::from_fps(60);
-thin_engine::run(event_loop, input, settings, |input, _settings, target| {
-    display.resize(window.inner_size().into());
+thin_engine::run(event_loop, input, settings, |input, _, target| {
+    let size = window.inner_size().into();
+    display.resize(size);
     let mut frame = display.draw();
-    let view = Mat4::view_matrix_3d(frame.get_dimensions(), 1.0, 1024.0, 0.1);
+    let view = Mat4::view_matrix_3d(size, 1.0, 1024.0, 0.1);
 
     //handle gravity and jump
     gravity += DELTA * 9.5;
@@ -72,7 +83,7 @@ thin_engine::run(event_loop, input, settings, |input, _settings, target| {
     }
 
     //set camera rotation
-    let look_move = vec2(input.axis(LookRight, LookLeft), input.axis(LookUp, LookDown));
+    let look_move = input.dir(LookRight, LookLeft, LookUp, LookDown);
     rot += look_move.scale(DELTA * 7.0);
     rot.y = rot.y.clamp(-PI / 2.0, PI / 2.0);
     let rx = Quaternion::from_y_rot(rot.x);
@@ -80,10 +91,9 @@ thin_engine::run(event_loop, input, settings, |input, _settings, target| {
     let rot = rx * ry;
 
     //move player based on view and gravity
-    let dir = vec2(input.axis(Right, Left), input.axis(Forward, Back));
-    let strength = dir.length().min(1.0); // handle controlers variable strength
-    let move_dir = vec3(dir.x, 0.0, dir.y).transform(&Mat3::from_rot(rx)).normalise();
-    pos += move_dir.scale(5.0*DELTA*strength);
+    let dir = input.dir_max_len_1(Right, Left, Forward, Back);
+    let dir =  vec3(dir.x, 0.0, dir.y);
+    pos += dir.transform(&rx.into()).scale(5.0*DELTA);
     pos.y = (pos.y - gravity * DELTA).max(0.0);
 
     if input.pressed(Exit) { target.exit() }
