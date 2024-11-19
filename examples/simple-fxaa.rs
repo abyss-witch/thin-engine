@@ -20,22 +20,17 @@ fn main() {
     let mut colour = ResizableTexture2D::default();
     let mut depth = ResizableDepthTexture2D::default();
 
-    
-    
-    let input = {
-        use thin_engine::input_map_setup::*;
-        input_map!(
-            (Left,      ArrowLeft, KeyA, Axis(LeftStickX,  Neg)),
-            (Right,     ArrowRight,KeyD, Axis(LeftStickX,  Pos)),
-            (Forward,   ArrowUp,   KeyW, Axis(LeftStickY,  Neg)),
-            (Back,      ArrowDown, KeyS, Axis(LeftStickY,  Pos)),
-            (LookRight, MouseMoveX(Pos), Axis(RightStickX, Pos)),
-            (LookLeft,  MouseMoveX(Neg), Axis(RightStickX, Neg)),
-            (LookUp,    MouseMoveY(Pos), Axis(RightStickY, Pos)),
-            (LookDown,  MouseMoveY(Neg), Axis(RightStickY, Neg)),
-            (FXAA,      KeyF,            GamepadButton::North  )
-        )
-    };
+    let input = { use thin_engine::input_map_setup::*; input_map!(
+        (Left,      ArrowLeft, KeyA, Axis(LeftStickX,  Neg)),
+        (Right,     ArrowRight,KeyD, Axis(LeftStickX,  Pos)),
+        (Forward,   ArrowUp,   KeyW, Axis(LeftStickY,  Neg)),
+        (Back,      ArrowDown, KeyS, Axis(LeftStickY,  Pos)),
+        (LookRight, MouseMoveX(Pos), Axis(RightStickX, Pos)),
+        (LookLeft,  MouseMoveX(Neg), Axis(RightStickX, Neg)),
+        (LookUp,    MouseMoveY(Pos), Axis(RightStickY, Pos)),
+        (LookDown,  MouseMoveY(Neg), Axis(RightStickY, Neg)),
+        (FXAA,      KeyF,            GamepadButton::North  )
+    ) };
     let (screen_indices, verts, uvs) = mesh!(
         &display, &screen::INDICES, &screen::VERTICES, &screen::UVS
     );
@@ -81,12 +76,14 @@ fn main() {
     
     let mut pos = vec3(0.0, 0.0, -30.0);
     let mut rot = vec2(0.0, 0.0);
-    const DELTA: f32 = 0.016;
+    
+    let mut frame_start = Instant::now();
 
     thin_engine::run(event_loop, input, Settings::from_fps(60), |input, _, _| {
-        // using a small resolution to show the effect.
-        // `let size = window.inner_size().into();` 
-        // can be used instead to set resolution to window size
+        let delta_time = frame_start.elapsed().as_secs_f32();
+        frame_start = Instant::now();
+
+        // using a small resolution to better show the effect of fxaa.
         let size = (380, 216);
         display.resize(size);
         depth.resize_to_display(&display);
@@ -105,7 +102,7 @@ fn main() {
 
         //set camera rotation
         let look_move = input.dir(LookRight, LookLeft, LookUp, LookDown);
-        rot += look_move.scale(DELTA * 2.0);
+        rot += look_move.scale(delta_time * 2.0);
         rot.y = rot.y.clamp(-PI / 2.0, PI / 2.0);
         let rx = Quat::from_y_rot(rot.x);
         let ry = Quat::from_x_rot(rot.y);
@@ -113,7 +110,7 @@ fn main() {
 
         //move player based on view
         let dir = input.dir_max_len_1(Right, Left, Forward, Back);
-        let move_dir = vec3(dir.x, 0.0, dir.y).scale(5.0*DELTA);
+        let move_dir = vec3(dir.x, 0.0, dir.y).scale(5.0*delta_time);
         pos += move_dir.transform(&Mat3::from_rot(rx));
 
         frame.clear_color_and_depth((0.0, 0.0, 0.0, 1.0), 1.0);

@@ -41,9 +41,12 @@
 //! let camera = Mat4::from_scale(Vec3::splat(10.0)).inverse();
 //! 
 //! let settings = Settings::from_fps(60); // target of 60 fps
-//! let mut delta_time = 0.016; // change in time between frames
+//! let mut frame_start = Instant::now();
 //! thin_engine::run(event_loop, input, settings, |input, _settings, target| {
-//!     let frame_start = Instant::now();
+//!     // gets time between frames
+//!     let delta_time = frame_start.elapsed().as_secs_f32();
+//!     frame_start = Instant::now();
+//!
 //!     // set up frame
 //!     let size = window.inner_size().into();
 //!     display.resize(size);
@@ -74,7 +77,6 @@
 //!         }, &DrawParameters::default()
 //!     );
 //!     frame.finish().unwrap();
-//!     delta_time = frame_start.elapsed().as_secs_f32();
 //! }).unwrap();
 //! ```
 
@@ -99,8 +101,8 @@ use std::time::{Duration, Instant};
 /// when running `default()` the gamepads may fail to initialise and the program will continue
 /// running after printing the error. if this is undesirable use `with_gamepads()` instead.
 pub struct Settings {
-    gamepads: Option<Gilrs>,
-    min_frame_duration: Option<Duration>
+    pub gamepads: Option<Gilrs>,
+    pub min_frame_duration: Option<Duration>
 }
 impl Settings {
     pub fn new(gamepads: Option<Gilrs>, min_frame_duration: Option<Duration>) -> Self {
@@ -132,6 +134,8 @@ impl Default for Settings {
 }
 pub mod meshes;
 pub mod shaders;
+#[cfg(feature = "text")]
+pub mod text_renderer;
 
 pub type Display = glium::Display<glium::glutin::surface::WindowSurface>;
 pub type EventLoop = winit::event_loop::EventLoop<()>;
@@ -218,12 +222,13 @@ where
             Event::DeviceEvent { event, .. } => input.update_with_device_event(event),
             Event::AboutToWait => {
                 let update = settings.min_frame_duration
-                    .map(|i| i >= frame_time.elapsed())
+                    .map(|i| i <= frame_time.elapsed())
                     .unwrap_or(true);
                 if update {
                     logic(&mut input, &mut settings, target);
                     frame_time = Instant::now();
-                    input.init() }
+                    input.init()
+                }
             },
             _ => (),
         }

@@ -53,22 +53,25 @@ fn main() {
     let mut rot = vec2(0.0, 0.0);
     let mut gravity = 0.0;
 
-    const DELTA: f32 = 0.016;
+    let mut frame_start = Instant::now();
 
     thin_engine::run(event_loop, input, Settings::from_fps(60), |input, _settings, target| {
+        let delta_time = frame_start.elapsed().as_secs_f32();
+        frame_start = Instant::now();
+
         display.resize(window.inner_size().into());
         let mut frame = display.draw();
         let view = Mat4::view_matrix_3d(frame.get_dimensions(), 1.0, 1024.0, 0.1);
 
         //handle gravity and jump
-        gravity += DELTA * 9.5;
+        gravity += delta_time * 9.5;
         if input.pressed(Jump) {
             gravity = -10.0;
         }
 
         //set camera rotation
         let look_move = input.dir(LookRight, LookLeft, LookUp, LookDown);
-        rot += look_move.scale(DELTA * 7.0);
+        rot += look_move.scale(delta_time * 7.0);
         rot.y = rot.y.clamp(-PI / 2.0, PI / 2.0);
         let rx = Quat::from_y_rot(rot.x);
         let ry = Quat::from_x_rot(rot.y);
@@ -76,9 +79,9 @@ fn main() {
 
         //move player based on view and gravity
         let dir = input.dir_max_len_1(Right, Left, Forward, Back);
-        let move_dir = vec3(dir.x, 0.0, dir.y).scale(5.0*DELTA);
+        let move_dir = vec3(dir.x, 0.0, dir.y).scale(5.0*delta_time);
         pos += move_dir.transform(&Mat3::from_rot(rx));
-        pos.y = (pos.y - gravity * DELTA).max(0.0);
+        pos.y = (pos.y - gravity * delta_time).max(0.0);
 
         if input.pressed(Exit) { target.exit() }
 
