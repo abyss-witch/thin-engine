@@ -122,7 +122,7 @@ thin_engine::run(event_loop, input, settings, |input, _, target| {
 
 ### Recomended Drawing Abstraction
 It is encouraged to make structs for abstracting drawing that is used often. A good way to structure the data is like so:
-```
+```rust
 pub struct Drawer<'a> {
     pub display: &'a thin_engine::Display,
     pub vertices: &'a VertexBuffer<Vertex>,
@@ -136,7 +136,7 @@ impl Drawerer {
 }
 ```
 and initialising the data like this:
-```
+```rust
 let drawerer = Drawer {
     pub display: &display,
     pub vertices: &vertices,
