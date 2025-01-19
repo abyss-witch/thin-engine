@@ -1,12 +1,17 @@
 use thin_engine::{text_renderer::*, prelude::*};
+use std::{cell::RefCell, rc::Rc};
 fn main() {
-    let input = input_map!();
-    let settings = Settings::default();
+    let event_loop = EventLoop::new().unwrap();
+    event_loop.set_control_flow(ControlFlow::Poll);
 
-    let (event_loop, window, display) = thin_engine::set_up().unwrap();
-    window.set_transparent(false);
-    let (indices, vertices, uvs) = Font::mesh(&display);
-    let shader = Font::shader(&display).unwrap();
+    struct Graphics {
+        shader: Program,
+        indices: IndexBuffer<u32>,
+        vertices: VertexBuffer<Vertex>,
+        uvs: VertexBuffer<TextureCoords>
+    }
+    let graphics: Rc<RefCell<Option<Graphics>>> = Rc::default();
+    let graphics_setup = graphics.clone();
 
     let mut font = Font::from_scale_and_file(40.0, "examples/DroidSans.ttf").unwrap();
     let draw_params = DrawParameters {
@@ -15,17 +20,22 @@ fn main() {
         ..params::alias_3d()
     };
 
-    let text_renderer = TextRenderer {
-        shader: &shader, indices: &indices, vertices: &vertices,
-        uvs: &uvs, draw_params: &draw_params, display: &display
-    };
-
     let time = std::time::Instant::now();
 
     let text = "Text can be drawn in 2d or 3d thanks to the power of Matrices. Text is drawn without wrapping and tab spacing however the font struct has a function to format text for you.";
-    thin_engine::run(event_loop, input, settings, |_, _, _| {
+    thin_engine::builder(input_map!()).with_setup(|display, _window| {
+        let (indices, vertices, uvs) = Font::mesh(display);
+        let shader = Font::shader(display).unwrap();
+        graphics_setup.replace(Some(Graphics { indices, vertices, uvs, shader }));
+    }).with_update(|_input, display, _settings, _target, window| {
+        let graphics = graphics.borrow();
+        let Graphics { shader, vertices, uvs, indices } = graphics.as_ref().unwrap();
+
+        let text_renderer = TextRenderer {
+            shader, indices, vertices, uvs, draw_params: &draw_params, display
+        };
+
         let (width, height): (u32, u32) = window.inner_size().into();
-        display.resize((width, height));
 
         // set font size to 5% of the screens height
         let font_size = height as f32 * 0.05;
@@ -37,8 +47,8 @@ fn main() {
         let mut frame = display.draw();
         frame.clear_color_and_depth((0.9, 0.3, 0.5, 1.0), 11.0);
 
-        let formated_text = font.format_text(text, Some(width as f32/font_size), 8, &display);
-        let formated_3d_text = font.format_text(text, Some(10.0), 8, &display);
+        let formated_text = font.format_text(text, Some(width as f32/font_size), 8, display);
+        let formated_3d_text = font.format_text(text, Some(10.0), 8, display);
         let pos = vec3(-(width as f32 / height as f32), 1.0, 0.0);
         let time = time.elapsed().as_secs_f32();
 
@@ -65,5 +75,5 @@ fn main() {
         ).unwrap();
 
         frame.finish().unwrap();
-    }).unwrap()
+    }).build(event_loop).unwrap()
 }

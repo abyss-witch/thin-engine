@@ -3,6 +3,7 @@
 //! support and low boilerplate despite having lots of control.
 //! ```
 //! use thin_engine::{prelude::*, meshes::screen};
+//! use std::{cell::RefCell, rc::Rc};
 //! use Action::*;
 //!
 //! #[derive(Hash, PartialEq, Eq, Clone, Copy)]
@@ -12,27 +13,25 @@
 //!     Jump,
 //!     Exit
 //! }
-//! let (event_loop, window, display) = thin_engine::set_up().unwrap();
-//! let mut input = {
-//!     use thin_engine::input_map_setup::*;
-//!     input_map!(
-//!         (Left,  KeyA, MouseButton::Left,  ArrowLeft,  GamepadButton::DPadLeft),
-//!         (Right, KeyD, MouseButton::Right, ArrowRight, GamepadButton::DPadRight),
-//!         (Jump,  KeyW, ArrowUp, Space, GamepadButton::South),
-//!         (Exit,  Escape, GamepadButton::Start)
-//!     )
-//! };
-//! let (box_indices, box_verts) = mesh!(
-//!     &display, &screen::INDICES, &screen::VERTICES
-//! );
-//! let box_shader = Program::from_source(
-//! &display, shaders::VERTEX, 
-//! "#version 140
-//! out vec4 colour;
-//! void main() {
-//!     colour = vec4(1.0, 0.0, 0.0, 1.0);
-//! }", None).unwrap();
-//! 
+//! let event_loop = EventLoop::new().unwrap();
+//! event_loop.set_control_flow(ControlFlow::Poll);
+//! let mut input = { use base_input_codes::*; input_map!(
+//!     (Left,  KeyA, MouseButton::Left,  ArrowLeft,  DPadLeft),
+//!     (Right, KeyD, MouseButton::Right, ArrowRight, DPadRight),
+//!     (Jump,  KeyW, ArrowUp, Space, GamepadInput::South),
+//!     (Exit,  Escape, GamepadInput::Start)
+//! )};
+//!
+//! struct Graphics {
+//!     box_indices: IndexBuffer<u32>,
+//!     box_vertices: VertexBuffer<Vertex>,
+//!     box_uvs: VertexBuffer<TextureCoords>,
+//!     box_normals: VertexBuffer<Normal>,
+//!     box_shader: Program
+//! }
+//! let graphics: Rc<RefCell<Option<Graphics>>> = Rc::default();
+//! let graphics_setup = graphics.clone();
+//!
 //! let mut player_pos = Vec2::ZERO;
 //! let mut player_gravity = 0.0;
 //! let mut player_can_jump = true;
@@ -42,16 +41,28 @@
 //! 
 //! let settings = Settings::from_fps(60); // target of 60 fps
 //! let mut frame_start = Instant::now();
-//! thin_engine::run(event_loop, input, settings, |input, _settings, target| {
+//! thin_engine::builder(input).with_setup(move |display, window| {
+//!     // some computers will panic when a vertex buffer is used but not passed a value. so we must
+//!     // initialise empty vertex buffers.
+//!     let (box_indices, box_vertices, box_uvs, box_normals) = mesh!(
+//!         display, &screen::INDICES, &screen::VERTICES,
+//!         &[] as &[TextureCoords; 0], &[] as &[Normal; 0]
+//!     );
+//!     let box_shader = Program::from_source(
+//!         display, shaders::VERTEX, 
+//!         "#version 140
+//!         out vec4 colour;
+//!         void main() {
+//!             colour = vec4(1.0, 0.0, 0.0, 1.0);
+//!         }", None
+//!     ).unwrap();
+//!     graphics_setup.replace(Some(Graphics {
+//!         box_vertices, box_uvs, box_normals, box_indices, box_shader
+//!     }));
+//! }).with_update(move |input, display, _settings, target, window| {
 //!     // gets time between frames
 //!     let delta_time = frame_start.elapsed().as_secs_f32();
 //!     frame_start = Instant::now();
-//!
-//!     // set up frame
-//!     let size = window.inner_size().into();
-//!     display.resize(size);
-//!     let mut frame = display.draw();
-//!     let view2d = Mat4::view_matrix_2d(size);
 //!     
 //!     if input.pressed(Exit) { target.exit() }
 //!
@@ -68,34 +79,38 @@
 //!         player_can_jump = false;
 //!     }
 //!
+//!     let graphics = graphics.borrow();
+//!     let Graphics {
+//!         box_vertices, box_uvs, box_normals, box_indices, box_shader
+//!     } = graphics.as_ref().unwrap();
+//!     // set up frame
+//!     let mut frame = display.draw();
+//!     let view2d = Mat4::view_matrix_2d(frame.get_dimensions());
+//!
 //!     // draw
 //!     frame.clear_color(0.0, 0.0, 0.0, 1.0);
 //!     frame.draw(
-//!         &box_verts, &box_indices, &box_shader, &uniform! {
+//!         (box_vertices, box_uvs, box_normals), box_indices,
+//!         box_shader, &uniform! {
 //!             view: view2d, camera: camera,
 //!             model: Mat4::from_pos(player_pos.extend(0.0)),
 //!         }, &DrawParameters::default()
 //!     );
+//!     window.pre_present_notify();
 //!     frame.finish().unwrap();
-//! }).unwrap();
+//! }).with_settings(Settings::from_fps(60))
+//!     .build(event_loop).unwrap();
 //! ```
 
 #![allow(deprecated)]
 use glium::backend::glutin::SimpleWindowBuilder;
-use winit::{
-    error::EventLoopError,
-    event::*,
-    window::Window,
-};
-use std::{hash::Hash};
 pub use gilrs;
 use gilrs::Gilrs;
-use winit_input_map::InputMap;
 pub use glium;
 pub use glium_types;
 pub use winit;
 pub use winit_input_map as input_map;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 /// run time settings for thin engine including gamepad settings (through gilrs) and fps settings.
 /// when running `default()` the gamepads may fail to initialise and the program will continue
@@ -134,18 +149,26 @@ impl Default for Settings {
 }
 pub mod meshes;
 pub mod shaders;
+pub mod application;
 #[cfg(feature = "text")]
 pub mod text_renderer;
 
 pub type Display = glium::Display<glium::glutin::surface::WindowSurface>;
-pub type EventLoop = winit::event_loop::EventLoop<()>;
-pub type WindowTarget = winit::event_loop::ActiveEventLoop;
+
+use winit_input_map::InputMap;
+use crate::application::ThinBuilder;
+use std::hash::Hash;
+pub fn builder<'a, H: Hash + Eq + Copy>(input_map: InputMap<H>) -> ThinBuilder<'a, H> {
+    ThinBuilder::<'a, H>::new(input_map)
+}
 
 pub mod prelude {
+    pub use crate::application::*;
     pub use glium::{
         draw_parameters, IndexBuffer, self,
         VertexBuffer, Program, Texture2d,
-        uniform, Surface, Frame, DrawParameters
+        uniform, Surface, Frame, DrawParameters,
+        backend::glutin::simple_window_builder::SimpleWindowBuilder
     };
     pub use crate::Settings;
     pub use std::time::{Duration, Instant};
@@ -155,157 +178,17 @@ pub mod prelude {
     pub use winit::event::MouseButton;
     pub use winit::keyboard::KeyCode;
     pub use gilrs::ev::{Button as GamepadButton, Axis as GamepadAxis};
-    pub use winit::window::{Fullscreen, CursorGrabMode};
+    pub use winit::{event_loop::*, window::{Fullscreen, CursorGrabMode}};
     pub use crate::input_map::*;
-}
-/// imports base roots of input_code options to reduce boilerplate
-/// ```
-/// #[derive(Hash, PartialEq, Eq, Clone, Copy)]
-/// enum Actions { Foo, Bar }
-/// use Actions::*;
-/// let input_map = {
-///     use thin_engine::input_map_setup::*;
-///     thin_engine::input_map::input_map!(
-///         (Foo, Axis(LeftStickX, Pos), MouseMoveX(Pos),  GamepadButton::West),
-///         (Bar, MouseScroll(Neg),      MouseButton::Left)
-///     )
-/// };
-/// ```
-pub mod input_map_setup {
-    pub use winit::keyboard::KeyCode::*;
-    pub use winit::event::MouseButton;
-    pub use gilrs::Axis::*;
-    pub use winit_input_map::{GamepadButton, *};
-    pub use winit_input_map::{DeviceInput::*, GamepadInput::Axis, AxisSign::*};
-}
-/// used to quickly set up thin engine.
-pub fn set_up() -> Result<(EventLoop, Window, Display), EventLoopError> {
-    let event_loop = EventLoop::new()?;
-    event_loop.set_control_flow(winit::event_loop::ControlFlow::Poll);
-    let (window, display) = SimpleWindowBuilder::new().build(&event_loop);
-    Ok((event_loop, window, display))
-}
-/// used to quickly set up logic. handles closed and input events for you. the `logic` var will be
-/// run every frame.
-/// ```
-/// use thin_engine::prelude::*;
-/// let (event_loop, window, display) = thin_engine::set_up().unwrap();
-/// #[derive(Hash, PartialEq, Eq, Clone, Copy)]
-/// enum Actions{ Debug }
-/// use Actions::*;
-/// let mut input = input_map!(
-///     (Debug, KeyCode::Space, GamepadButton::South)
-/// );
-/// let settings = Settings::default();
-/// thin_engine::run(event_loop, input, settings, |_, _, _| {
-///     let mut frame = display.draw();
-///     frame.clear_color(0.0, 0.0, 0.0, 1.0);
-///     frame.finish().unwrap();
-/// }).unwrap();
-/// ```
-pub fn run<T, F>(
-    event_loop: EventLoop,
-    mut input: InputMap<T>,
-    mut settings: Settings,
-    mut logic: F,
-) -> Result<(), EventLoopError>
-where
-    T: Hash + PartialEq + Eq + Copy + Clone,
-    F: FnMut(&mut InputMap<T>, &mut Settings, &WindowTarget),
-{
-    let mut frame_time = Instant::now();
-    event_loop.run(|event, target| {
-        if let Some(ref mut gilrs) = settings.gamepads { input.update_with_gilrs(gilrs) }
-        match &event {
-            Event::WindowEvent { event: WindowEvent::CloseRequested, .. } => target.exit(),
-            Event::WindowEvent { event, .. } => input.update_with_window_event(event),
-            Event::DeviceEvent { event, .. } => input.update_with_device_event(event),
-            Event::AboutToWait => {
-                let update = settings.min_frame_duration
-                    .map(|i| i <= frame_time.elapsed())
-                    .unwrap_or(true);
-                if update {
-                    logic(&mut input, &mut settings, target);
-                    frame_time = Instant::now();
-                    input.init()
-                }
-            },
-            _ => (),
-        }
-    })
-}
-/// used to quickly set up logic. handles closed and input events for you. the `logic` var will be
-/// run every frame. the `event_handler` var is
-/// for if you want more control over the event handling and is run multiple times before logic.
-/// ```
-/// use thin_engine::prelude::*;
-/// let (event_loop, window, display) = thin_engine::set_up().unwrap();
-/// #[derive(Hash, PartialEq, Eq, Clone, Copy)]
-/// enum Actions{
-///     Debug
-/// }
-/// use Actions::*;
-/// let mut input = input_map!(
-///     (Debug, KeyCode::Space)
-/// );
-///
-///
-/// thin_engine::run_with_event_handler(
-///     event_loop, input,
-///     Settings::default(),
-///     |event, input, settings, target| {
-///         match event {
-///             //do something with events
-///             _ => ()
-///         }
-///     }, |input, settings, target|{
-///         let mut frame = display.draw();
-///         frame.clear_color(0.0, 0.0, 0.0, 1.0);
-///         frame.finish().unwrap();
-/// });
-/// ```
-pub fn run_with_event_handler<T, F1, F2>(
-    event_loop: EventLoop,
-    mut input: InputMap<T>,
-    mut settings: Settings,
-    mut event_handler: F2,
-    mut logic: F1,
-) -> Result<(), EventLoopError>
-where
-    T: Hash + PartialEq + Eq + Clone + Copy,
-    F1: FnMut(&mut InputMap<T>, &mut Settings, &WindowTarget),
-    F2: FnMut(&Event<()>, &mut InputMap<T>, &mut Settings, &WindowTarget),
-{
-    let mut frame_time = Instant::now();
-    event_loop.run(|event, target| {
-        if let Some(ref mut gilrs) = settings.gamepads { input.update_with_gilrs(gilrs) }
-        event_handler(&event, &mut input, &mut settings, target);
-        match &event {
-            Event::WindowEvent { event: WindowEvent::CloseRequested, .. } => target.exit(),
-            Event::WindowEvent { event, .. } => input.update_with_window_event(event),
-            Event::DeviceEvent { event, .. } => input.update_with_device_event(event),
-            Event::AboutToWait => {
-                let update = settings.min_frame_duration
-                    .map(|i| i >= frame_time.elapsed())
-                    .unwrap_or(true);
-                if update {
-                    logic(&mut input, &mut settings, target);
-                    frame_time = Instant::now();
-                    input.init()
-                }
-            },
-            _ => (),
-        }
-    })
 }
 /// resizable depth texture. recomended to  use with gliums `SimpleFrameBuffer` to draw onto a texture you can use
 /// in another shader! usefull for fxaa
 #[derive(Default)]
-pub struct ResizableTexture2D {
+pub struct ResizableTexture2d {
     pub size: (u32, u32),
     pub texture: Option<glium::Texture2d>
 }
-impl ResizableTexture2D {
+impl ResizableTexture2d {
     pub fn resize(&mut self, display: &Display, new_size: (u32, u32)) {
         if self.size.0 != new_size.0 || self.size.1 != new_size.1 {
             self.texture = glium::Texture2d::empty(display, new_size.0, new_size.1).ok();
@@ -330,11 +213,11 @@ impl ResizableTexture2D {
 /// resizable depth texture. use with gliums `SimpleFrameBuffer::WithDepthTexture()` 
 /// to create a texture you can draw on! usefull for things like fog and fxaa.
 #[derive(Default)]
-pub struct ResizableDepthTexture2D {
+pub struct ResizableDepthTexture2d {
     size: (u32, u32),
     pub texture: Option<glium::texture::DepthTexture2d>
 }
-impl ResizableDepthTexture2D {
+impl ResizableDepthTexture2d {
     pub fn resize(&mut self, display: &Display, new_size: (u32, u32)) {
         if self.size.0 != new_size.0 || self.size.1 != new_size.1 {
             self.texture = glium::texture::DepthTexture2d::empty(display, new_size.0, new_size.1).ok();
