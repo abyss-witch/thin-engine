@@ -1,6 +1,6 @@
 [package]
 name = "thin-engine"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2021"
 license = "MIT OR Apache-2.0 OR CC-BY-4.0"
 keywords = ["gamedev", "engine", "game"]
@@ -21,7 +21,6 @@ text = ["dep:fontdue"]
 gilrs = "0.11.0"
 glium = "0.36.0"
 glium-types = "0.6.1"
-winit = "0.30.8"
-fontdue = { version = "0.9.2", optional = true }
-
+winit = "0.30.9"
+fontdue = { version = "0.9.3", optional = true }
 winit-input-map = { version = "0.5.0", features = ["glium-types"] }

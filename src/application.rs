@@ -8,34 +8,40 @@ use winit::{
 use crate::{SimpleWindowBuilder, Display, Settings};
 use std::{hash::Hash, time::Instant};
 use winit_input_map::InputMap;
-pub struct ThinEngine<'a, H, D, S, U>
-where H: Hash + PartialEq + Eq + Clone + Copy, S: FnMut(&Display, &mut Window),
+/// holds all the data and runs the application.
+pub struct ThinEngine<'a, H, D, S, U, E>
+where H: Hash + PartialEq + Eq + Clone + Copy,
+S: FnMut(&Display, &mut Window, &ActiveEventLoop),
 U: FnMut(&mut InputMap<H>, &Display, &mut Settings, &ActiveEventLoop, &mut Window),
-D: FnMut(&mut InputMap<H>, &Display, &mut Settings, &ActiveEventLoop, &mut Window)
+D: FnMut(&mut InputMap<H>, &Display, &mut Settings, &ActiveEventLoop, &mut Window),
+E: FnMut(Event<()>, &ActiveEventLoop, Option<&(Window, Display)>)
 {
     state: Option<(Window, Display)>,
     window_settings: Option<SimpleWindowBuilder>,
-    update: &'a mut U,
-    draw:   &'a mut D,
-    setup:  &'a mut S,
+    update:        &'a mut U,
+    draw:          &'a mut D,
+    setup:         &'a mut S,
+    event_handler: &'a mut E,
     input_map: InputMap<H>,
     settings: Settings,
     frame_start: Instant,
 }
-impl<'a, H, D, S, U> ApplicationHandler for ThinEngine<'a, H, D, S, U>
-where H: Hash + PartialEq + Eq + Clone + Copy, S: FnMut(&Display, &mut Window),
+impl<H, D, S, U, E> ApplicationHandler for ThinEngine<'_, H, D, S, U, E>
+where H: Hash + PartialEq + Eq + Clone + Copy,
+S: FnMut(&Display, &mut Window, &ActiveEventLoop),
 U: FnMut(&mut InputMap<H>, &Display, &mut Settings, &ActiveEventLoop, &mut Window),
 D: FnMut(&mut InputMap<H>, &Display, &mut Settings, &ActiveEventLoop, &mut Window),
+E: FnMut(Event<()>, &ActiveEventLoop, Option<&(Window, Display)>)
 {
    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.state.is_some() { return }
         let (mut window, display) = self.window_settings
             .take().expect("No window settings are available")
             .build(event_loop);
-       (self.setup)(&display, &mut window);
+       (self.setup)(&display, &mut window, event_loop);
         self.state = Some((window, display));
     }
-    fn window_event(&mut self, event_loop: &ActiveEventLoop, _: WindowId, event: WindowEvent) {
+    fn window_event(&mut self, event_loop: &ActiveEventLoop, window_id: WindowId, event: WindowEvent) {
         match event {
             WindowEvent::Resized(size) => self.state.as_mut().unwrap().1.resize(size.into()),
             WindowEvent::CloseRequested => event_loop.exit(),
@@ -47,9 +53,11 @@ D: FnMut(&mut InputMap<H>, &Display, &mut Settings, &ActiveEventLoop, &mut Windo
             },
             _ => self.input_map.update_with_window_event(&event)
         }
+        (self.event_handler)(Event::WindowEvent { window_id, event }, event_loop, self.state.as_ref());
     }
-    fn device_event(&mut self, _: &ActiveEventLoop, id: DeviceId, event: DeviceEvent) {
-        self.input_map.update_with_device_event(id, &event);
+    fn device_event(&mut self, event_loop: &ActiveEventLoop, device_id: DeviceId, event: DeviceEvent) {
+        self.input_map.update_with_device_event(device_id, &event);
+        (self.event_handler)(Event::DeviceEvent { device_id, event }, event_loop, self.state.as_ref());
     }
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         if let Some(ref mut gilrs) = self.settings.gamepads { self.input_map.update_with_gilrs(gilrs) }
@@ -63,8 +71,9 @@ D: FnMut(&mut InputMap<H>, &Display, &mut Settings, &ActiveEventLoop, &mut Windo
             self.frame_start = Instant::now();
             self.input_map.init();
         }
+        (self.event_handler)(Event::AboutToWait, event_loop, self.state.as_ref());
     }
-    fn suspended(&mut self, _: &ActiveEventLoop) {
+    fn suspended(&mut self, event_loop: &ActiveEventLoop) {
         let window = self.state.take().unwrap().0;
 
         self.window_settings = Some(SimpleWindowBuilder::new()
@@ -83,40 +92,47 @@ D: FnMut(&mut InputMap<H>, &Display, &mut Settings, &ActiveEventLoop, &mut Windo
             // todo resize increments
             // todo parrent window
         ));
+        (self.event_handler)(Event::Suspended, event_loop, self.state.as_ref());
     }
 }
+/// holds data used to build and run the program
 pub struct ThinBuilder<'a, H: Hash + PartialEq + Eq + Clone + Copy> {
     window_settings: SimpleWindowBuilder,
     input_map: InputMap<H>,
     settings: Settings,
     update: Box<dyn FnMut(&mut InputMap<H>, &Display, &mut Settings, &ActiveEventLoop, &mut Window) + 'a>,
-    setup: Box<dyn FnMut(&Display, &mut Window) + 'a>,
+    setup: Box<dyn FnMut(&Display, &mut Window, &ActiveEventLoop) + 'a>,
     draw: Box<dyn FnMut(&mut InputMap<H>, &Display, &mut Settings, &ActiveEventLoop, &mut Window) + 'a>,
+    event_handler: Box<dyn FnMut(Event<()>, &ActiveEventLoop, Option<&(Window, Display)>) + 'a>
 }
 impl<'a, H: Hash + PartialEq + Eq + Clone + Copy> ThinBuilder<'a, H> {
    pub fn new(input_map: InputMap<H>) -> ThinBuilder<'a, H> {
         ThinBuilder {
             input_map,
             settings: Settings::default(),
-            update: Box::new(|_, _, _, _, _| {}),
-            setup:  Box::new(|_, _|          {}),
-            draw:   Box::new(|_, _, _, _, _| {}),
+            update:        Box::new(|_, _, _, _, _| {}),
+            setup:         Box::new(|_, _, _|       {}),
+            draw:          Box::new(|_, _, _, _, _| {}),
+            event_handler: Box::new(|_, _, _|       {}),
             window_settings: SimpleWindowBuilder::new()
         }
     }
+    /// builds and runs the program
     pub fn build(mut self, ev: EventLoop<()>) -> Result<(), winit::error::EventLoopError> {
         let mut engine = ThinEngine {
             state: None,
             window_settings: Some(self.window_settings),
-            update: &mut self.update,
-            draw:   &mut self.draw,
-            setup:  &mut self.setup,
+            update:        &mut self.update,
+            draw:          &mut self.draw,
+            setup:         &mut self.setup,
+            event_handler: &mut self.event_handler,
             input_map: self.input_map,
             settings:  self.settings,
             frame_start: Instant::now(),
         };
         ev.run_app(&mut engine)
     }
+    /// this is run whenever a draw request is scheduled
     pub fn with_draw(
         mut self,
         draw: impl FnMut(&mut InputMap<H>, &Display, &mut Settings, &ActiveEventLoop, &mut Window) + 'a
@@ -124,15 +140,24 @@ impl<'a, H: Hash + PartialEq + Eq + Clone + Copy> ThinBuilder<'a, H> {
         self.draw = Box::new(draw);
         self
     }
-    pub fn with_setup(mut self, setup: impl FnMut(&Display, &mut Window) + 'a) -> Self {
+    /// this is run whenever the window and display are created
+    pub fn with_setup(mut self, setup: impl FnMut(&Display, &mut Window, &ActiveEventLoop) + 'a) -> Self {
         self.setup = Box::new(setup);
         self
     }
+    /// this is run always. if min_duration in settings is set, then it is throttled to said value
     pub fn with_update(
         mut self,
         update: impl FnMut(&mut InputMap<H>, &Display, &mut Settings, &ActiveEventLoop, &mut Window) + 'a
     ) -> Self {
         self.update = Box::new(update);
+        self
+    }
+    pub fn with_event_handler(
+        mut self,
+        event_handler: impl FnMut(Event<()>, &ActiveEventLoop, Option<&(Window, Display)>) + 'a
+    ) -> Self {
+        self.event_handler = Box::new(event_handler);
         self
     }
     pub fn with_settings(mut self, settings: Settings) -> Self {

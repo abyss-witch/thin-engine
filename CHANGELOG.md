@@ -6,3 +6,7 @@ added optional feature "text" for rendering text
 0.4.0
 completely overhalled api to be compatible with new versions of winit
 
+0.5.0
+added event_handler
+added settings.get_fps()
+setup method has eventloop input

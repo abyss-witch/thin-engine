@@ -24,7 +24,7 @@
 //!     let time = std::time::Instant::now();
 //! 
 //!     let text = "Text can be drawn in 2d or 3d thanks to the power of Matrices. Text is drawn without wrapping and tab spacing however the font struct has a function to format text for you.";
-//!     thin_engine::builder(input_map!()).with_setup(|display, _window| {
+//!     thin_engine::builder(input_map!()).with_setup(|display, _window, _event_loop| {
 //!         let (indices, vertices, uvs) = Font::mesh(display);
 //!         let shader = Font::shader(display).unwrap();
 //!         graphics_setup.replace(Some(Graphics { indices, vertices, uvs, shader }));

@@ -44,7 +44,7 @@ fn main() {
 
     let mut frame_start = Instant::now();
 
-    thin_engine::builder(input).with_setup(|display, window| {
+    thin_engine::builder(input).with_setup(|display, window, _| {
         let _ = window.set_cursor_grab(CursorGrabMode::Confined);
         let _ = window.set_cursor_grab(CursorGrabMode::Locked);
         window.set_cursor_visible(false);

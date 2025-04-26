@@ -41,7 +41,7 @@
 //! 
 //! let settings = Settings::from_fps(60); // target of 60 fps
 //! let mut frame_start = Instant::now();
-//! thin_engine::builder(input).with_setup(move |display, window| {
+//! thin_engine::builder(input).with_setup(move |display, window, _| {
 //!     // some computers will panic when a vertex buffer is used but not passed a value. so we must
 //!     // initialise empty vertex buffers.
 //!     let (box_indices, box_vertices, box_uvs, box_normals) = mesh!(
@@ -140,6 +140,9 @@ impl Settings {
         let min_duration = target_fps.map(|i| Duration::from_secs_f32(1.0/i as f32));
         self.min_frame_duration = min_duration;
     }
+    pub fn get_fps(&self) -> Option<u32> {
+        self.min_frame_duration.map(|i| (1.0 / i.as_secs_f64()).round() as u32)
+    }
 }
 impl Default for Settings {
     fn default() -> Self {
@@ -175,8 +178,7 @@ pub mod prelude {
     pub use std::thread;
     pub use glium_types::prelude::*;
     pub use crate::{meshes, shaders};
-    pub use winit::event::MouseButton;
-    pub use winit::keyboard::KeyCode;
+    pub use winit::{self, event::MouseButton, keyboard::KeyCode};
     pub use gilrs::ev::{Button as GamepadButton, Axis as GamepadAxis};
     pub use winit::{event_loop::*, window::{Fullscreen, CursorGrabMode}};
     pub use crate::input_map::*;
