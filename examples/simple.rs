@@ -13,7 +13,8 @@ fn main() {
     
     let input = { use base_input_codes::*; input_map!(
         (Jump,    Space,  GamepadInput::South),
-        (Exit,    Escape, GamepadInput::Start),
+        // square brackets mean that all input codes must be pressed for the bind to be pressed
+        (Exit,    [LeftControl, Escape], GamepadInput::Start),
         (Left,    ArrowLeft,  KeyA,  LeftStickLeft ),
         (Right,   ArrowRight, KeyD,  LeftStickRight),
         (Forward, ArrowUp,    KeyW,  LeftStickUp   ),
@@ -52,14 +53,30 @@ fn main() {
 
         let (indices, vertices, normals) = mesh!(
             display, &teapot::INDICES, &teapot::VERTICES, &teapot::NORMALS
-        );
+        ).unwrap();
         let program = Program::from_source(
-            display, shaders::VERTEX,
+            display,
+            "#version 140
+            in vec3 position;
+            in vec3 normal;
+            out vec3 v_normal;
+
+            uniform mat4 camera;
+            uniform mat4 model;
+            uniform mat4 perspective;
+
+            void main() {
+                mat3 norm_mat = transpose(inverse(mat3(camera * model)));
+                v_normal = normalize(norm_mat * normal);
+                gl_Position = perspective * camera * model * vec4(position, 1);
+            }",
             "#version 140
             out vec4 colour;
             in vec3 v_normal;
+
             uniform vec3 light;
             const vec3 albedo = vec3(0.1, 1.0, 0.3);
+
             void main(){
                 float light_level = dot(light, v_normal);
                 colour = vec4(albedo * light_level, 1.0);
@@ -73,24 +90,24 @@ fn main() {
         frame_start = Instant::now();
 
         let mut frame = display.draw();
-        let view = Mat4::view_matrix_3d(frame.get_dimensions(), 1.0, 1024.0, 0.1);
+        let perspective = Mat4::perspective_3d(frame.get_dimensions(), 1.0, 1024.0, 0.1);
 
-        //handle gravity and jump
+        // handle gravity and jump
         gravity += delta_time * 9.5;
         if input.pressed(Jump) { gravity = -10.0 }
 
-        //set camera rotation
-        let look_move = input.dir(LookLeft, LookRight, LookUp, LookDown);
-        rot += look_move.scale(delta_time * 20.0);
+        // set camera rotation
+        let look_move = input.dir(LookRight, LookLeft, LookUp, LookDown);
+        rot += look_move.scale(delta_time * 15.0);
         rot.y = rot.y.clamp(-PI / 2.0, PI / 2.0);
         let rx = Quat::from_y_rot(rot.x);
-        let ry = Quat::from_x_rot(rot.y);
+        let ry = Quat::from_x_rot(-rot.y);
         let rot = rx * ry;
 
-        //move player based on view and gravity
+        // move player based on camera and gravity
         let dir = input.dir_max_len_1(Right, Left, Forward, Back);
         let move_dir = vec3(dir.x, 0.0, dir.y).scale(5.0*delta_time);
-        pos += move_dir.transform(&Mat3::from_rot(rx));
+        pos += Mat3::from_rot(rx) * move_dir;
         pos.y = (pos.y - gravity * delta_time).max(0.0);
 
         if input.pressed(Exit) { target.exit() }
@@ -100,7 +117,7 @@ fn main() {
         frame.draw(
             (vertices, normals), indices,
             program, &uniform! {
-                view: view,
+                perspective: perspective,
                 model: Mat4::from_scale(Vec3::splat(0.1)),
                 camera: Mat4::from_inverse_transform(pos, Vec3::ONE, rot),
                 light: vec3(1.0, -0.9, -1.0).normalise()

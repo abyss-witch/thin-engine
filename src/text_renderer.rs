@@ -1,4 +1,4 @@
-//! a module for font renderering. 
+//! A module for font renderering. 
 //! ```
 //! use thin_engine::{text_renderer::*, prelude::*};
 //! use std::{cell::RefCell, rc::Rc};
@@ -23,9 +23,9 @@
 //! 
 //!     let time = std::time::Instant::now();
 //! 
-//!     let text = "Text can be drawn in 2d or 3d thanks to the power of Matrices. Text is drawn without wrapping and tab spacing however the font struct has a function to format text for you.";
+//!     let text = "Text can be drawn in 2d or 3d thanks to the power of Matrices. Text is drawn without wrapping and tab spacing, however the font struct has a function to format text for you.";
 //!     thin_engine::builder(input_map!()).with_setup(|display, _window, _event_loop| {
-//!         let (indices, vertices, uvs) = Font::mesh(display);
+//!         let (indices, vertices, uvs) = Font::mesh(display).unwrap();
 //!         let shader = Font::shader(display).unwrap();
 //!         graphics_setup.replace(Some(Graphics { indices, vertices, uvs, shader }));
 //!     }).with_update(|_input, display, _settings, _target, window| {
@@ -42,8 +42,8 @@
 //!         let font_size = height as f32 * 0.05;
 //!         font.resize(height as f32 * 0.05);
 //! 
-//!         let view_2d = Mat4::view_matrix_2d((width, height)                  );
-//!         let view_3d = Mat4::view_matrix_3d((width, height), 1.0, 0.1, 1024.0);
+//!         let perspective_2d = Mat4::perspective_2d((width, height)                  );
+//!         let perspective_3d = Mat4::perspective_3d((width, height), 1.0, 0.1, 1024.0);
 //! 
 //!         let mut frame = display.draw();
 //!         frame.clear_color_and_depth((0.9, 0.3, 0.5, 1.0), 11.0);
@@ -64,7 +64,7 @@
 //!                 Quat::from_z_rot(time*0.5 ) *
 //!                 Quat::from_x_rot(time     )
 //!             ) * Mat4::from_pos(vec3(-5.0, 5.0, 0.0)),
-//!             view_3d, Mat4::default(),
+//!             perspective_3d, Mat4::default(),
 //!             &mut font
 //!         ).unwrap();
 //! 
@@ -72,7 +72,7 @@
 //!         text_renderer.draw(
 //!             &formated_text, Vec3::ZERO, &mut frame,
 //!             Mat4::from_pos_and_scale(pos, Vec3::splat(0.1)),
-//!             view_2d, Mat4::default(), &mut font
+//!             perspective_2d, Mat4::default(), &mut font
 //!         ).unwrap();
 //! 
 //!         frame.finish().unwrap();
@@ -89,39 +89,52 @@ pub struct Font {
     textures: HashMap<char, (Metrics, Option<Texture2d>)>,
 }
 impl Font {
-    /// mainly used for resizing when the window resolution is changed. if you want multiple
+    /// Mainly used for resizing when the window resolution is changed. If you want multiple
     /// drawing sizes, create multiple fonts with different scales
     pub fn resize(&mut self, scale: f32) {
         if (scale - self.scale).abs() <= f32::EPSILON { return }
         self.clear_loaded();
         self.scale = scale;
     }
-    /// loads the mesh for use in the 'TextRenderer` struct
-    pub fn mesh(display: &impl Facade) -> (IndexBuffer<u32>, VertexBuffer<Vertex>, VertexBuffer<TextureCoords>) {
+    /// Loads the mesh for use in the 'TextRenderer` struct
+    pub fn mesh(display: &impl Facade) -> Result<(IndexBuffer<u32>, VertexBuffer<Vertex>, VertexBuffer<TextureCoords>), glium_types::vert_types::MeshError> {
         mesh!(display, &[1, 0, 2, 2, 3, 1], &[
             vec3(0.0, 1.0, 0.0).into(), vec3(0.0, 0.0, 0.0).into(),
             vec3(1.0, 1.0, 0.0).into(), vec3(1.0, 0.0, 0.0).into()
         ], &meshes::screen::UVS)
     }
-    /// checks if the font has a glyph for the provided char
+    /// Checks if the font has a glyph for the provided char
     pub fn has_glyph(&self, c: char) -> bool {
         self.font.has_glyph(c)
     }
-    /// loads the shader for use in the `TextRenderer` struct.
-    /// the fragmentshader has these uniforms, `albedo` is the colour of the text, `tex` is
+    /// Loads the shader for use in the `TextRenderer` struct.
+    /// The fragment shader has these uniforms, `albedo` is the colour of the text, `tex` is
     /// the texture of a glyph. also see the base vertex shader.
     pub fn shader(display: &impl Facade) -> Result<Program, glium::ProgramCreationError> {
-        Program::from_source(display, shaders::VERTEX,
+        Program::from_source(display, 
+        "#version 140
+        in vec2 texture_coords;
+        in vec3 position;
+
+        out vec2 uv;
+        uniform mat4 model;
+        uniform mat4 camera;
+        uniform mat4 perspective;
+
+        void main() {
+            uv = texture_coords;
+            gl_Position = perspective * camera * model * vec4(position, 1);
+        }",
         "#version 140
         in vec2 uv;
         out vec4 colour;
         uniform vec3 albedo;
         uniform sampler2D tex;
         void main() {
-            colour = vec4(albedo, texture(tex, uv).r);
+            colour = texture(tex, uv).rrrr * vec4(albedo, 1);
         }", None)
     }
-    /// creates a font with a scale measured in pixels
+    /// Creates a font with a scale measured in pixels
     pub fn from_scale_and_file(scale: f32, path: impl AsRef<Path>) -> Result<Self, &'static str> {
         let settings = FontSettings { scale, ..Default::default() };
         Self::from_settings_and_file(settings, path)
@@ -141,7 +154,7 @@ impl Font {
             textures: HashMap::new()
         })
     }
-    /// gets character data for rendering **without** loading it to memmory. it is recommended
+    /// Gets character data for rendering **without** loading it to memmory. It is recommended
     /// to use `load_and_get` instead.
     pub fn char_data(&self, c: char, display: &impl Facade) -> (Metrics, Option<Texture2d>) {
         let (metrics, data) = self.font.rasterize(c, self.scale);
@@ -155,26 +168,27 @@ impl Font {
         };
         (metrics, Some(Texture2d::new(display, data).unwrap()))
     }
-    /// loads a characters texture and offset data to memmory for drawing unless the font file
-    /// doesnt contatin said character
+    /// Loads a characters texture and offset data to memmory for drawing unless the font file
+    /// doesnt contatin said character.
     pub fn load_char(&mut self, c: char, display: &impl Facade) {
         if self.font.has_glyph(c) {
             self.textures.insert(c, self.char_data(c, display));
         }
     }
-    /// loads all characters that are valid in the font file to memory. (not recommended)
+    /// Loads all characters that are valid in the font file to memory. (not recommended)
     pub fn load_all(&mut self, display: &impl Facade) {
         for c in self.font.chars().clone().into_keys() {
             self.load_char(c, display);
         }
     }
-    /// tries to get texture and offset data. if the character is not in the font file
+    /// Tries to get texture and offset data. If the character is not in the font file
     /// returns replacement char data instead
     pub fn try_get(&self, mut c: char) -> Option<(Metrics, Option<&Texture2d>)> {
         if !self.font.has_glyph(c) { c = char::REPLACEMENT_CHARACTER }
         self.textures.get(&c).map(|(a, b)| (*a, b.as_ref()))
     }
-    /// gets texture and offset data of a chararcter from memory. otherwise it
+    /// Gets texture and offset data of a chararcter from memory, loading it if it isn't currently
+    /// loaded.
     pub fn load_and_get(&mut self, c: char, display: &impl Facade) -> (Metrics, Option<&Texture2d>) {
         let load = self.try_get(c).is_none();
         if load { self.load_char(c, display) }
@@ -187,15 +201,15 @@ impl Font {
             }
         }, None))
     }
-    /// formats text so that tabs are replaced with `tab_indent` spaces and text is wrapped every
-    /// time a words width exceeds `wrap`
+    /// Formats text so that tabs are replaced with `tab_indent` spaces and text is wrapped every
+    /// time a words width exceeds `wrap`.
     pub fn format_text(&mut self, text: &str, wrap: Option<f32>, tab_indent: usize, display: &impl Facade) -> String {
         let indent = " ".repeat(tab_indent);
         let text = text.replace('\t', &indent);
         if let Some(wrap) = wrap { self.wrap_text(&text, wrap, display) }
         else { text }
     }
-    /// wraps text so that each word that excedes `wrap` in width is put on a new line.
+    /// Wraps text so that each word that excedes `wrap` in width is put on a new line.
     pub fn wrap_text(&mut self, text: &str, wrap: f32, display: &impl Facade) -> String {
         let wrap = wrap * self.scale;
         let mut lines = String::new();
@@ -240,13 +254,13 @@ impl Font {
         lines.push_str(&word);
         lines
     }
-    /// clears all loaded textures and offset data.
+    /// Clears all loaded textures and offset data.
     pub fn clear_loaded(&mut self) { self.textures.clear() }
     /// metrics on line spacing for horizontal lines
     pub fn horizontal_metrics(&self) -> Option<LineMetrics> {
         self.font.horizontal_line_metrics(self.scale)
     }
-    /// metrics on line spacing for vertical lines
+    /// Metrics on line spacing for vertical lines
     pub fn vertical_metrics(&self) -> Option<LineMetrics> {
         self.font.vertical_line_metrics(self.scale)
     }
@@ -280,8 +294,8 @@ impl From<TextDrawError> for DrawValidError {
     }
 }
 impl<'a, F: Facade> TextRenderer<'a, F> {
-    /// returns a `DrawValidError::InvalidChar(char)` when the text contains a character that the
-    /// font doesnt have a glyph for instead of drawing the replacement char glyph
+    /// Returns a `DrawValidError::InvalidChar(char)` when the text contains a character that the
+    /// font doesnt have a glyph for instead of drawing the replacement char glyph.
     pub fn try_draw_only_valid(
         &self, text: &str, colour: Vec3,
         frame: &mut impl Surface,
@@ -294,12 +308,12 @@ impl<'a, F: Facade> TextRenderer<'a, F> {
         self.draw(text, colour, frame, model, view, camera, font)?;
         Ok(())
     }
-    /// draws text. if drawing a character that is not in the font it will draw the replacement
-    /// char instead. is this is undesirable try using `try_draw_only_valid` instead
+    /// Draws text. If drawing a character that is not in the font it will draw the replacement
+    /// char instead. If this is undesirable try using `try_draw_only_valid` instead.
     pub fn draw(
         &self, text: &str, colour: Vec3,
         frame: &mut impl Surface,
-        model: Mat4, view: Mat4,
+        model: Mat4, perspective: Mat4,
         camera: Mat4, font: &mut Font
     ) -> Result<(), TextDrawError> {
         let size = 1.0 / font.scale;
@@ -335,7 +349,7 @@ impl<'a, F: Facade> TextRenderer<'a, F> {
                 if let Some(tex) = tex { frame.draw(
                     (self.vertices, self.uvs), self.indices,
                     self.shader, &uniform! {
-                        camera: camera, view: view,
+                        camera: camera, perspective: perspective,
                         model: model * draw_mat, albedo: colour,
                         tex: tex.sampled().wrap_function(SamplerWrapFunction::Clamp)
                     }, self.draw_params

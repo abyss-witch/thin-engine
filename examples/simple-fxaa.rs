@@ -63,13 +63,28 @@ fn main() {
 
         let (screen_indices, screen_vertices, screen_uvs) = mesh!(
             display, &screen::INDICES, &screen::VERTICES, &screen::UVS
-        );
+        ).unwrap();
         let (teapot_indices, teapot_vertices, teapot_uvs, teapot_normals) = mesh!(
             display, &teapot::INDICES, &teapot::VERTICES, &[] as &[TextureCoords; 0], &teapot::NORMALS
-        );
+        ).unwrap();
 
         let program = Program::from_source(
-            display, shaders::VERTEX,
+            display,
+            "#version 140
+            in vec3 position;
+            in vec3 normal;
+            
+            out vec3 v_normal;
+
+            uniform mat4 model;
+            uniform mat4 perspective;
+            uniform mat4 camera;
+
+            void main() {
+                mat3 norm_mat = transpose(inverse(mat3(camera * model)));
+                v_normal = normalize(norm_mat * normal);
+                gl_Position = perspective * camera * model * vec4(position, 1);
+            }",
             "#version 140
             out vec4 colour;
             in vec3 v_normal;
@@ -88,7 +103,15 @@ fn main() {
         ).unwrap();
         let fxaa = shaders::fxaa_shader(display).unwrap();
         let normal = Program::from_source(
-            display, shaders::SCREEN_VERTEX, 
+            display,
+            "#version 140
+            in vec2 texture_coords;
+            out vec2 uv;
+            in vec3 position;
+            void main() {
+                uv = texture_coords;
+                gl_Position = vec4(position, 1);
+            }", 
             "#version 140
             in vec2 uv;
             uniform sampler2D tex;
@@ -121,7 +144,7 @@ fn main() {
         depth.resize_to_display(&display);
         colour.resize_to_display(&display);
 
-        // press f to toggle FXAA
+        // press f or gamepad north to toggle FXAA
         if input.pressed(FXAA) { fxaa_on = !fxaa_on }
 
         let colour = colour.texture();
@@ -130,27 +153,27 @@ fn main() {
             display, colour, depth
         ).unwrap();
 
-        let view = Mat4::view_matrix_3d(size, 1.0, 1024.0, 0.1);
+        let perspective = Mat4::perspective_3d(size, 1.0, 1024.0, 0.1);
 
         // set camera rotation
-        let look_move = input.dir(LookLeft, LookRight, LookUp, LookDown);
-        rot += look_move.scale(delta_time * 20.0);
+        let look_move = input.dir(LookRight, LookLeft, LookUp, LookDown);
+        rot += look_move.scale(delta_time * 15.0);
         rot.y = rot.y.clamp(-PI / 2.0, PI / 2.0);
         let rx = Quat::from_y_rot(rot.x);
-        let ry = Quat::from_x_rot(rot.y);
+        let ry = Quat::from_x_rot(-rot.y);
         let rot = rx * ry;
 
-        // move player based on view
+        // move player based on camera
         let dir = input.dir_max_len_1(Right, Left, Forward, Back);
         let move_dir = vec3(dir.x, 0.0, dir.y).scale(5.0*delta_time);
-        pos += move_dir.transform(&Mat3::from_rot(rx));
+        pos += Mat3::from_rot(rx) * move_dir;
 
         frame.clear_color_and_depth((0.0, 0.0, 0.0, 1.0), 1.0);
         // draw teapot
         frame.draw(
             teapot_mesh, teapot_indices,
             program, &uniform! {
-                view: view,
+                perspective: perspective,
                 model: Mat4::from_scale(Vec3::splat(0.1)),
                 camera: Mat4::from_inverse_transform(pos, Vec3::ONE, rot),
                 light:   vec3(0.1, 0.25, -1.0).normalise(),

@@ -10,3 +10,9 @@ completely overhalled api to be compatible with new versions of winit
 added event_handler
 added settings.get_fps()
 setup method has eventloop input
+
+0.6.0
+updated dependencies
+updated text mesh to return a mesh error
+updated docs
+

@@ -22,10 +22,10 @@ fn main() {
 
     let time = std::time::Instant::now();
 
-    let text = "Text can be drawn in 2d or 3d thanks to the power of Matrices. Text is drawn without wrapping and tab spacing however the font struct has a function to format text for you.";
+    let text = "Text can be drawn in 2d or 3d thanks to the power of Matrices. Text is drawn without wrapping and tab spacing, however the font struct has a function to format text for you.";
     thin_engine::builder(input_map!()).with_setup(|display, window, _| {
         window.set_title("Text Render");
-        let (indices, vertices, uvs) = Font::mesh(display);
+        let (indices, vertices, uvs) = Font::mesh(display).unwrap();
         let shader = Font::shader(display).unwrap();
         graphics_setup.replace(Some(Graphics { indices, vertices, uvs, shader }));
     }).with_update(|_input, display, _settings, _target, window| {
@@ -42,8 +42,8 @@ fn main() {
         let font_size = height as f32 * 0.05;
         font.resize(font_size);
 
-        let view_2d = Mat4::view_matrix_2d((width, height)                  );
-        let view_3d = Mat4::view_matrix_3d((width, height), 1.0, 0.1, 1024.0);
+        let perspective_2d = Mat4::perspective_2d((width, height)                  );
+        let perspective_3d = Mat4::perspective_3d((width, height), 1.0, 0.1, 1024.0);
 
         let mut frame = display.draw();
         frame.clear_color_and_depth((0.9, 0.3, 0.5, 1.0), 11.0);
@@ -64,7 +64,7 @@ fn main() {
                 Quat::from_z_rot(time*0.5 ) *
                 Quat::from_x_rot(time     )
             ) * Mat4::from_pos(vec3(-5.0, 5.0, 0.0)),
-            view_3d, Mat4::default(),
+            perspective_3d, Mat4::default(),
             &mut font
         ).unwrap();
 
@@ -72,7 +72,7 @@ fn main() {
         text_renderer.draw(
             &formated_text, Vec3::ZERO, &mut frame,
             Mat4::from_pos_and_scale(pos, Vec3::splat(0.1)),
-            view_2d, Mat4::default(), &mut font
+            perspective_2d, Mat4::default(), &mut font
         ).unwrap();
 
         frame.finish().unwrap();

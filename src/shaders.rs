@@ -3,8 +3,8 @@ use crate::Display;
 use glium_types::prelude::*;
 pub use glium_types::shaders::VERTEX;
 
-/// vertex shader that doesnt change position or uvs. takes in `Vertex` and `TextureCoords`
-/// and outputs `uv`. intended for use with the screen mesh to draw over
+/// Vertex shader that doesnt change position or uvs. takes in `Vertex` and `TextureCoords`
+/// and outputs `uv`. Intended for use with the screen mesh to draw over
 /// the screen. e.g. with the fxaa shader.
 pub const SCREEN_VERTEX: &str =
 "#version 140
@@ -15,7 +15,7 @@ void main() {
     uv = texture_coords;
     gl_Position = vec4(position, 1);
 }";
-/// fragment shader to smooth the harsh edges of a render.
+/// Fragment shader to smooth the harsh edges of a render.
 /// see `fxaa_shader()`
 pub const FXAA: &str = 
 "/**
@@ -124,12 +124,12 @@ void main() {
         colour = vec4(rgbB, texColor.a);
     }
 }";
-/// a shader for smoothing jaggerd pixel edges. use with `fxaa_uniforms` with the input of a
+/// A shader for smoothing jaggerd pixel edges. Use with `fxaa_uniforms` with the input of a
 /// texture. (check simple-fxaa example)
 pub fn fxaa_shader(display: &Display) -> Result<Program, ProgramCreationError> {
     Program::from_source(display, SCREEN_VERTEX, FXAA, None)
 }
-/// for use with the fxaa shader.
+/// Takes the render results texture and gives the appropiate fxaa uniform values. Use with the fxaa shader.
 pub fn fxaa_uniforms(tex: &Texture2d) -> UniformsStorage<'_, Vec2, UniformsStorage<'_, Sampler<'_, Texture2d>, EmptyUniforms>>{
     uniform! {
         tex: Sampler::new(tex),

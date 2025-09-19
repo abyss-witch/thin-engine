@@ -19,14 +19,13 @@
 //!     (Left,  KeyA, MouseButton::Left,  ArrowLeft,  DPadLeft),
 //!     (Right, KeyD, MouseButton::Right, ArrowRight, DPadRight),
 //!     (Jump,  KeyW, ArrowUp, Space, GamepadInput::South),
-//!     (Exit,  Escape, GamepadInput::Start)
+//!     // square brackets mean that all input codes must be pressed for the bind to be pressed
+//!     (Exit,  [ControlLeft, Escape], GamepadInput::Start)
 //! )};
 //!
 //! struct Graphics {
 //!     box_indices: IndexBuffer<u32>,
 //!     box_vertices: VertexBuffer<Vertex>,
-//!     box_uvs: VertexBuffer<TextureCoords>,
-//!     box_normals: VertexBuffer<Normal>,
 //!     box_shader: Program
 //! }
 //! let graphics: Rc<RefCell<Option<Graphics>>> = Rc::default();
@@ -42,14 +41,21 @@
 //! let settings = Settings::from_fps(60); // target of 60 fps
 //! let mut frame_start = Instant::now();
 //! thin_engine::builder(input).with_setup(move |display, window, _| {
-//!     // some computers will panic when a vertex buffer is used but not passed a value. so we must
-//!     // initialise empty vertex buffers.
-//!     let (box_indices, box_vertices, box_uvs, box_normals) = mesh!(
-//!         display, &screen::INDICES, &screen::VERTICES,
-//!         &[] as &[TextureCoords; 0], &[] as &[Normal; 0]
-//!     );
+//!     let (box_indices, box_vertices) = mesh!(
+//!         display, &screen::INDICES, &screen::VERTICES
+//!     ).unwrap();
 //!     let box_shader = Program::from_source(
-//!         display, shaders::VERTEX, 
+//!         display,
+//!         "#version 140
+//!         in vec3 position;
+//!         
+//!         uniform mat4 perspective;
+//!         uniform mat4 camera;
+//!         uniform mat4 model;
+//!
+//!         void main() {
+//!             gl_Position = perspective * camera * model * vec4(position, 1);
+//!         }", 
 //!         "#version 140
 //!         out vec4 colour;
 //!         void main() {
@@ -57,7 +63,7 @@
 //!         }", None
 //!     ).unwrap();
 //!     graphics_setup.replace(Some(Graphics {
-//!         box_vertices, box_uvs, box_normals, box_indices, box_shader
+//!         box_vertices, box_indices, box_shader
 //!     }));
 //! }).with_update(move |input, display, _settings, target, window| {
 //!     // gets time between frames
@@ -81,18 +87,18 @@
 //!
 //!     let graphics = graphics.borrow();
 //!     let Graphics {
-//!         box_vertices, box_uvs, box_normals, box_indices, box_shader
+//!         box_vertices, box_indices, box_shader
 //!     } = graphics.as_ref().unwrap();
 //!     // set up frame
 //!     let mut frame = display.draw();
-//!     let view2d = Mat4::view_matrix_2d(frame.get_dimensions());
+//!     let perspective = Mat4::perspective_2d(frame.get_dimensions());
 //!
 //!     // draw
 //!     frame.clear_color(0.0, 0.0, 0.0, 1.0);
 //!     frame.draw(
-//!         (box_vertices, box_uvs, box_normals), box_indices,
+//!         box_vertices, box_indices,
 //!         box_shader, &uniform! {
-//!             view: view2d, camera: camera,
+//!             perspective: perspective, camera: camera,
 //!             model: Mat4::from_pos(player_pos.extend(0.0)),
 //!         }, &DrawParameters::default()
 //!     );
@@ -112,9 +118,9 @@ pub use winit;
 pub use winit_input_map as input_map;
 use std::time::Duration;
 
-/// run time settings for thin engine including gamepad settings (through gilrs) and fps settings.
+/// Run time settings for thin engine including gamepad settings (through gilrs) and fps settings.
 /// when running `default()` the gamepads may fail to initialise and the program will continue
-/// running after printing the error. if this is undesirable use `with_gamepads()` instead.
+/// running after printing the error. If this is undesirable use `with_gamepads()` instead.
 pub struct Settings {
     pub gamepads: Option<Gilrs>,
     pub min_frame_duration: Option<Duration>
@@ -123,9 +129,9 @@ impl Settings {
     pub fn new(gamepads: Option<Gilrs>, min_frame_duration: Option<Duration>) -> Self {
         Self { gamepads, min_frame_duration }
     }
-    /// creates settings with the minimum frame duration set to 1/fps.
+    /// creates settings with the minimum frame duration set to 1 / fps.
     pub fn from_fps(fps: u32) -> Self {
-        let gamepads = Gilrs::new().map_err(|i| println!("{i}")).ok();
+        let gamepads = Gilrs::new().map_err(|i| eprintln!("{i}")).ok();
         let min_frame_duration = Some(Duration::from_secs_f32(1.0/fps as f32));
 
         Self::new(gamepads, min_frame_duration)
@@ -135,7 +141,7 @@ impl Settings {
         let gilrs = Gilrs::new()?;
         Ok(Self::new(Some(gilrs), None))
     }
-    /// sets the minimum frame duration to 1/fps or none if inputed.
+    /// sets the minimum frame duration to 1 / fps or none if inputed.
     pub fn set_target_fps(&mut self, target_fps: Option<u32>) {
         let min_duration = target_fps.map(|i| Duration::from_secs_f32(1.0/i as f32));
         self.min_frame_duration = min_duration;
